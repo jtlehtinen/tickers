@@ -345,6 +345,7 @@ mod tests {
     }
 
     #[async_std::test]
+    #[ignore = "requires network access to Yahoo Finance"]
     async fn test_company_data() {
         let client = Client::new();
 
@@ -364,6 +365,7 @@ mod tests {
     }
 
     #[async_std::test]
+    #[ignore = "requires network access to Yahoo Finance"]
     async fn test_options_data() {
         let client = Client::new();
 
@@ -398,6 +400,7 @@ mod tests {
     }
 
     #[async_std::test]
+    #[ignore = "requires network access to Yahoo Finance"]
     async fn test_chart_data() {
         let client = Client::new();
 
