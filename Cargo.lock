@@ -1519,6 +1519,7 @@ dependencies = [
  "serde_yaml",
  "structopt",
  "tickrs-api",
+ "unicode-width",
 ]
 
 [[package]]

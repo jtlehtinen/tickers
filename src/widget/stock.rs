@@ -5,6 +5,7 @@ use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, StatefulWidget, Tabs, Widget, Wrap};
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::chart::{
     ChartState, PricesCandlestickChart, PricesKagiChart, PricesLineChart, VolumeBarChart,
@@ -1137,18 +1138,8 @@ pub fn get_chart_title(
     let padding = if summary { 2 } else { 4 };
 
     // Constraint the title length to the screen area less padding & dots if it is truncated
-    let max_width = area.width as usize - padding - loading_indicator_overhead;
-    if title.len() > max_width {
-        let width = max_width - 3;
-        let truncated = &title[..width];
-        let trimmed = truncated.trim_end();
-
-        // Move trimmed spaces, if any, after elipsis so we still fill
-        // the total space (prevents exposing border after elipsis)
-        let trimmed_spaces = " ".repeat(truncated.len() - trimmed.len());
-
-        title = format!("{trimmed}...{trimmed_spaces}");
-    }
+    let max_width = (area.width as usize).saturating_sub(padding + loading_indicator_overhead);
+    title = truncate_title(&title, max_width);
 
     // Add padding and the loading indicator
     title = match state.loaded() {
@@ -1157,4 +1148,87 @@ pub fn get_chart_title(
     };
 
     title
+}
+
+/// Truncates `title` to `max_width` display columns, ending it with an elipsis
+/// if it doesn't fit. Works on whole characters, so multi-byte and wide
+/// characters (e.g. "Nestlé", CJK names) are never split.
+fn truncate_title(title: &str, max_width: usize) -> String {
+    if title.width() <= max_width {
+        return title.to_string();
+    }
+
+    let available = max_width.saturating_sub(3);
+
+    let mut truncated = String::new();
+    let mut truncated_width = 0;
+    for c in title.chars() {
+        let char_width = c.width().unwrap_or(0);
+
+        if truncated_width + char_width > available {
+            break;
+        }
+
+        truncated.push(c);
+        truncated_width += char_width;
+    }
+
+    let trimmed = truncated.trim_end();
+
+    // Move trimmed spaces, if any, after elipsis so we still fill
+    // the total space (prevents exposing border after elipsis)
+    let fill = " ".repeat(available - trimmed.width());
+
+    format!("{trimmed}...{fill}")
+}
+
+#[cfg(test)]
+mod tests {
+    use unicode_width::UnicodeWidthStr;
+
+    use super::truncate_title;
+
+    #[test]
+    fn truncate_title_keeps_titles_that_fit() {
+        assert_eq!(truncate_title("MU - Micron", 11), "MU - Micron");
+    }
+
+    #[test]
+    fn truncate_title_adds_elipsis() {
+        assert_eq!(truncate_title("MU - Micron Technology", 10), "MU - Mi...");
+    }
+
+    #[test]
+    fn truncate_title_moves_trailing_spaces_after_elipsis() {
+        assert_eq!(truncate_title("MU - Micron Technology", 8), "MU -... ");
+    }
+
+    #[test]
+    fn truncate_title_handles_multibyte_characters() {
+        // 'é' is two bytes, a byte based cut at 9 would land inside it
+        let truncated = truncate_title("NESN.SW - Nestlé S.A.", 15);
+        assert_eq!(truncated, "NESN.SW - Ne...");
+
+        let truncated = truncate_title("NESN.SW - Nestlé S.A.", 17);
+        assert_eq!(truncated, "NESN.SW - Nest...");
+
+        let truncated = truncate_title("NESN.SW - Nestlé S.A.", 18);
+        assert_eq!(truncated, "NESN.SW - Nestl...");
+
+        let truncated = truncate_title("NESN.SW - Nestlé S.A.", 19);
+        assert_eq!(truncated, "NESN.SW - Nestlé...");
+    }
+
+    #[test]
+    fn truncate_title_handles_wide_characters() {
+        let truncated = truncate_title("7203.T - トヨタ自動車", 15);
+        assert_eq!(truncated.width(), 15);
+        assert_eq!(truncated, "7203.T - ト... ");
+    }
+
+    #[test]
+    fn truncate_title_handles_tiny_widths() {
+        assert_eq!(truncate_title("MU - Micron", 0), "...");
+        assert_eq!(truncate_title("MU - Micron", 2), "...");
+    }
 }

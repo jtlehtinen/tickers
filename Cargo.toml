@@ -35,5 +35,6 @@ rclite = "0.1.5"
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
 structopt = "0.3"
+unicode-width = "0.1.10"
 tickrs-api = { path = "api/", version = "0.15.0" }
 ratatui = { version = "0.25.0", default-features = false, features = ["crossterm", "serde"] }
