@@ -2,10 +2,11 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
+use async_lock::Semaphore;
 use futures::AsyncReadExt;
-use http::{header, Request, Uri};
+use http::{header, response, Request, Uri};
 use isahc::config::Configurable;
-use isahc::{AsyncReadResponseExt, HttpClient};
+use isahc::HttpClient;
 use serde::de::DeserializeOwned;
 
 use crate::model::{
@@ -23,10 +24,16 @@ const NASDAQ_BASE: &str = "https://api.nasdaq.com/api";
 /// hanging its task forever
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// Requests beyond this many wait for one to finish, so bursts (e.g. every
+/// stock in the summary fetching at once) don't hit Yahoo all at once
+const MAX_CONCURRENT_REQUESTS: usize = 6;
+
 #[derive(Debug)]
 pub struct Client {
     client: HttpClient,
     base: String,
+    /// Permits to send a request
+    requests: Semaphore,
 }
 
 impl Client {
@@ -50,6 +57,25 @@ impl Client {
         }
     }
 
+    /// Sends `req` and reads its body, once fewer than
+    /// `MAX_CONCURRENT_REQUESTS` are in flight
+    async fn send(&self, req: Request<()>) -> Result<(response::Parts, Vec<u8>)> {
+        let _permit = self.requests.acquire().await;
+
+        let res = self
+            .client
+            .send_async(req)
+            .await
+            .context("Failed to get request")?;
+
+        let (parts, mut body) = res.into_parts();
+
+        let mut bytes = Vec::new();
+        body.read_to_end(&mut bytes).await?;
+
+        Ok((parts, bytes))
+    }
+
     async fn get<T: DeserializeOwned>(&self, url: Uri, cookie: Option<String>) -> Result<T> {
         let mut req = Request::builder()
             .method(http::Method::GET)
@@ -60,22 +86,14 @@ impl Client {
             req = req.header(header::COOKIE, cookie);
         }
 
-        let res = self
-            .client
-            .send_async(req.body(())?)
-            .await
-            .context("Failed to get request")?;
+        let (res, bytes) = self.send(req.body(())?).await?;
 
-        let status = res.status();
+        let status = res.status;
 
         // Yahoo rejected the crumb / cookie, callers can fetch a new one
         if status == http::StatusCode::UNAUTHORIZED {
             return Err(Unauthorized.into());
         }
-
-        let mut body = res.into_body();
-        let mut bytes = Vec::new();
-        body.read_to_end(&mut bytes).await?;
 
         // Yahoo returns a JSON error body (handled by callers) for most failures,
         // but things like rate limiting come back as plain text
@@ -151,14 +169,9 @@ impl Client {
             .header(header::ACCEPT, "application/json")
             .body(())?;
 
-        let mut res = self
-            .client
-            .send_async(req)
-            .await
-            .context("Failed to get request")?;
+        let (res, bytes) = self.send(req).await?;
 
-        let status = res.status();
-        let bytes = res.bytes().await?;
+        let status = res.status;
 
         let info = serde_json::from_slice(&bytes)
             .with_context(|| format!("Unexpected response from Nasdaq ({})", status))?;
@@ -294,14 +307,12 @@ impl Client {
     }
 
     pub async fn get_crumb(&self) -> Result<CrumbData> {
-        let res = self
-            .client
-            .get_async("https://fc.yahoo.com")
-            .await
-            .context("Failed to get request")?;
+        let (res, _) = self
+            .send(Request::get("https://fc.yahoo.com").body(())?)
+            .await?;
 
         let Some(cookie) = res
-            .headers()
+            .headers
             .get(header::SET_COOKIE)
             .and_then(|header| header.to_str().ok())
             .and_then(|s| s.split_once(';').map(|(value, _)| value))
@@ -318,10 +329,10 @@ impl Client {
             .header(header::COOKIE, cookie)
             .method(http::Method::GET)
             .body(())?;
-        let mut res = self.client.send_async(request).await?;
+        let (res, bytes) = self.send(request).await?;
 
-        let status = res.status();
-        let crumb = res.text().await?;
+        let status = res.status;
+        let crumb = String::from_utf8_lossy(&bytes).into_owned();
 
         if !status.is_success() || crumb.is_empty() || crumb.contains(char::is_whitespace) {
             bail!("Couldn't fetch crumb ({})", status);
@@ -350,7 +361,11 @@ impl Default for Client {
 
         let base = String::from("https://query1.finance.yahoo.com");
 
-        Client { client, base }
+        Client {
+            client,
+            base,
+            requests: Semaphore::new(MAX_CONCURRENT_REQUESTS),
+        }
     }
 }
 

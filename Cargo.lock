@@ -2908,6 +2908,7 @@ name = "tickrs-api"
 version = "0.15.0"
 dependencies = [
  "anyhow",
+ "async-lock",
  "async-std",
  "futures",
  "http",
