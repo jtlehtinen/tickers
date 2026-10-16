@@ -140,14 +140,21 @@ impl Client {
         bail!("Failed to get company data for {}", symbol);
     }
 
-    pub async fn get_options_expiration_dates(&self, symbol: &str) -> Result<Vec<i64>> {
+    pub async fn get_options_expiration_dates(
+        &self,
+        symbol: &str,
+        crumb_data: CrumbData,
+    ) -> Result<Vec<i64>> {
+        let mut params = HashMap::new();
+        params.insert("crumb", crumb_data.crumb);
+
         let url = self.get_url(
             Version::V7,
             &format!("finance/options/{}", encode_symbol(symbol)),
-            None,
+            Some(params),
         )?;
 
-        let response: Options = self.get(url, None).await?;
+        let response: Options = self.get(url, Some(crumb_data.cookie)).await?;
 
         if let Some(err) = response.option_chain.error {
             bail!(
@@ -171,9 +178,11 @@ impl Client {
         &self,
         symbol: &str,
         expiration_date: i64,
+        crumb_data: CrumbData,
     ) -> Result<OptionsHeader> {
         let mut params = HashMap::new();
         params.insert("date", format!("{}", expiration_date));
+        params.insert("crumb", crumb_data.crumb);
 
         let url = self.get_url(
             Version::V7,
@@ -181,7 +190,7 @@ impl Client {
             Some(params),
         )?;
 
-        let response: Options = self.get(url, None).await?;
+        let response: Options = self.get(url, Some(crumb_data.cookie)).await?;
 
         if let Some(err) = response.option_chain.error {
             bail!(
@@ -360,7 +369,11 @@ mod tests {
 
         let symbol = "SPY";
 
-        let exp_dates = client.get_options_expiration_dates(symbol).await;
+        let crumb = client.get_crumb().await.unwrap();
+
+        let exp_dates = client
+            .get_options_expiration_dates(symbol, crumb.clone())
+            .await;
 
         match exp_dates {
             Err(e) => {
@@ -370,7 +383,9 @@ mod tests {
             }
             Ok(dates) => {
                 for date in dates {
-                    let options = client.get_options_for_expiration_date(symbol, date).await;
+                    let options = client
+                        .get_options_for_expiration_date(symbol, date, crumb.clone())
+                        .await;
 
                     if let Err(e) = options {
                         println!("{}", e);

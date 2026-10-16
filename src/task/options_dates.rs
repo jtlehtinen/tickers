@@ -32,7 +32,11 @@ impl AsyncTask for OptionsDates {
         Box::pin(async move {
             let symbol = input.as_ref();
 
-            crate::CLIENT.get_options_expiration_dates(symbol).await
+            let crumb = crumb().await?;
+
+            crate::CLIENT
+                .get_options_expiration_dates(symbol, crumb)
+                .await
         })
     }
 }

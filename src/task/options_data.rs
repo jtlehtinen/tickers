@@ -35,8 +35,10 @@ impl AsyncTask for OptionsData {
             let symbol = &input.0;
             let date = input.1;
 
+            let crumb = crumb().await?;
+
             crate::CLIENT
-                .get_options_for_expiration_date(symbol, date)
+                .get_options_for_expiration_date(symbol, date, crumb)
                 .await
         })
     }
