@@ -452,52 +452,35 @@ impl CachableWidget<OptionsState> for OptionsWidget {
 
                     let currency = option.currency.as_deref().unwrap_or("USD");
 
-                    let gap_strike = 19 - (format!("{:.2} {}", option.strike, currency).len() + 7);
-                    let gap_last = 15 - (format!("{:.2}", option.last_price).len() + 6);
-                    let gap_ask = 15 - (format!("{:.2}", option.ask.unwrap_or_default()).len() + 4);
-                    let gap_bid = 15 - (format!("{:.2}", option.bid.unwrap_or_default()).len() + 4);
-                    let gap_volume =
-                        18 - (format!("{}", option.volume.unwrap_or_default()).len() + 7);
-                    let gap_open_int =
-                        18 - (format!("{}", option.open_interest.unwrap_or_default()).len() + 9);
-                    let gap_impl_vol = 17
-                        - (format!(
-                            "{:.0}%",
-                            option.implied_volatility.unwrap_or_default() * 100.0
-                        )
-                        .len()
-                            + 11);
-
                     let column_0 = vec![
                         Line::from(Span::styled(
-                            format!(
-                                "Strike:{}{:.2} {}",
-                                " ".repeat(gap_strike),
-                                option.strike,
-                                currency
+                            right_align(
+                                "Strike:",
+                                format!("{:.2} {}", option.strike, currency),
+                                19,
                             ),
                             style(),
                         )),
                         Line::default(),
                         Line::from(Span::styled(
-                            format!("Price:{}{:.2}", " ".repeat(gap_last), option.last_price,),
+                            right_align("Price:", format!("{:.2}", option.last_price), 15),
                             style(),
                         )),
                         Line::default(),
                         Line::from(Span::styled(
-                            format!(
-                                "Bid:{}{:.2}",
-                                " ".repeat(gap_ask),
-                                option.bid.unwrap_or_default(),
+                            right_align(
+                                "Bid:",
+                                format!("{:.2}", option.bid.unwrap_or_default()),
+                                15,
                             ),
                             style(),
                         )),
                         Line::default(),
                         Line::from(Span::styled(
-                            format!(
-                                "Ask:{}{:.2}",
-                                " ".repeat(gap_bid),
-                                option.ask.unwrap_or_default(),
+                            right_align(
+                                "Ask:",
+                                format!("{:.2}", option.ask.unwrap_or_default()),
+                                15,
                             ),
                             style(),
                         )),
@@ -505,28 +488,31 @@ impl CachableWidget<OptionsState> for OptionsWidget {
 
                     let column_1 = vec![
                         Line::from(Span::styled(
-                            format!(
-                                "Volume:{}{}",
-                                " ".repeat(gap_volume),
-                                option.volume.unwrap_or_default(),
+                            right_align(
+                                "Volume:",
+                                option.volume.unwrap_or_default().to_string(),
+                                18,
                             ),
                             style(),
                         )),
                         Line::default(),
                         Line::from(Span::styled(
-                            format!(
-                                "Open Int:{}{}",
-                                " ".repeat(gap_open_int),
-                                option.open_interest.unwrap_or_default()
+                            right_align(
+                                "Open Int:",
+                                option.open_interest.unwrap_or_default().to_string(),
+                                18,
                             ),
                             style(),
                         )),
                         Line::default(),
                         Line::from(Span::styled(
-                            format!(
-                                "Implied Vol:{}{:.0}%",
-                                " ".repeat(gap_impl_vol),
-                                option.implied_volatility.unwrap_or_default() * 100.0
+                            right_align(
+                                "Implied Vol:",
+                                format!(
+                                    "{:.0}%",
+                                    option.implied_volatility.unwrap_or_default() * 100.0
+                                ),
+                                18,
                             ),
                             style(),
                         )),
@@ -541,5 +527,41 @@ impl CachableWidget<OptionsState> for OptionsWidget {
                 }
             }
         }
+    }
+}
+
+/// Formats `label` followed by `value` right aligned so the line is `width`
+/// characters wide. Values that don't fit are appended without padding.
+fn right_align(label: &str, value: String, width: usize) -> String {
+    format!(
+        "{label}{value:>value_width$}",
+        value_width = width.saturating_sub(label.len())
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::right_align;
+
+    #[test]
+    fn right_align_pads_to_width() {
+        assert_eq!(right_align("Price:", "1.25".into(), 15), "Price:     1.25");
+        assert_eq!(
+            right_align("Strike:", "100.00 USD".into(), 19),
+            "Strike:  100.00 USD"
+        );
+    }
+
+    #[test]
+    fn right_align_does_not_panic_on_wide_values() {
+        // Previously computed as `15 - (len + 6)` which underflowed
+        assert_eq!(
+            right_align("Price:", "1234567.89".into(), 15),
+            "Price:1234567.89"
+        );
+        assert_eq!(
+            right_align("Implied Vol:", "1234567%".into(), 18),
+            "Implied Vol:1234567%"
+        );
     }
 }
