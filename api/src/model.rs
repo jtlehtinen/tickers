@@ -270,11 +270,40 @@ where
 
         fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
             let mut vec = Vec::new();
-            while let Ok(Some(elem)) = seq.next_element::<Option<T>>() {
+            // `null` entries (e.g. missing data points) become the default value
+            while let Some(elem) = seq.next_element::<Option<T>>()? {
                 vec.push(elem.unwrap_or_default());
             }
             Ok(vec)
         }
     }
     deserializer.deserialize_seq(SeqVisitor(PhantomData))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ChartQuote;
+
+    #[test]
+    fn test_deserialize_vec_defaults_nulls() {
+        let quote: ChartQuote = serde_json::from_str(
+            r#"{"close":[1.5,null,2.5],"volume":[10,null,30],"high":[],"low":[null],"open":[1.0]}"#,
+        )
+        .unwrap();
+
+        assert_eq!(quote.close, vec![1.5, 0.0, 2.5]);
+        assert_eq!(quote.volume, vec![10, 0, 30]);
+        assert_eq!(quote.low, vec![0.0]);
+    }
+
+    #[test]
+    fn test_deserialize_vec_reports_invalid_elements() {
+        // Previously this stopped at the bad element, giving a confusing error
+        let err = serde_json::from_str::<ChartQuote>(
+            r#"{"close":[1.5],"volume":[10,"x",30],"high":[],"low":[],"open":[]}"#,
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("invalid type"), "{}", err);
+    }
 }
