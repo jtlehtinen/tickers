@@ -12,9 +12,9 @@ use task::JoinHandle;
 pub use self::company::Company;
 pub use self::current_price::{CurrentPrice, MarketState, Offer, Quote};
 pub use self::default_timestamps::DefaultTimestamps;
+pub use self::nasdaq_quote::{NasdaqData, NasdaqQuote};
 pub use self::options_data::OptionsData;
 pub use self::options_dates::OptionsDates;
-pub use self::pre_market_volume::PreMarketVolume;
 pub use self::prices::Prices;
 use crate::api::model::CrumbData;
 use crate::api::Unauthorized;
@@ -23,9 +23,9 @@ use crate::{CLIENT, DATA_RECEIVED, UPDATE_INTERVAL};
 mod company;
 mod current_price;
 mod default_timestamps;
+mod nasdaq_quote;
 mod options_data;
 mod options_dates;
-mod pre_market_volume;
 mod prices;
 
 /// How often one-shot tasks are retried until they succeed

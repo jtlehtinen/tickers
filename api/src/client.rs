@@ -122,14 +122,14 @@ impl Client {
         bail!("Failed to get chart data for {}", symbol);
     }
 
-    /// Today's pre-market volume of a US listed `symbol` (a Yahoo symbol) from
-    /// Nasdaq, since Yahoo has none. `None` when Nasdaq isn't in pre-market or
-    /// doesn't know the symbol.
-    pub async fn get_pre_market_volume(
+    /// Nasdaq's quote of a US listed `symbol` (a Yahoo symbol), for what Yahoo
+    /// lacks or gets wrong: today's pre-market volume and the best bid / ask.
+    /// Its `data` is `None` when Nasdaq doesn't know the symbol.
+    pub async fn get_nasdaq_quote(
         &self,
         symbol: &str,
         asset_class: AssetClass,
-    ) -> Result<Option<u64>> {
+    ) -> Result<NasdaqQuoteInfo> {
         // Yahoo's BRK-B is Nasdaq's BRK.B
         let symbol = symbol.replace('-', ".");
 
@@ -158,10 +158,10 @@ impl Client {
         let status = res.status();
         let bytes = res.bytes().await?;
 
-        let info: NasdaqQuoteInfo = serde_json::from_slice(&bytes)
+        let info = serde_json::from_slice(&bytes)
             .with_context(|| format!("Unexpected response from Nasdaq ({})", status))?;
 
-        Ok(info.pre_market_volume())
+        Ok(info)
     }
 
     pub async fn get_company_data(
@@ -518,20 +518,26 @@ mod tests {
 
     #[async_std::test]
     #[ignore = "requires network access to Nasdaq"]
-    async fn test_pre_market_volume() {
+    async fn test_nasdaq_quote() {
         let client = Client::new();
 
-        // Volume is only returned during pre-market, but requests should
-        // succeed whenever
+        // Volume is only returned during pre-market, and bid / ask may be
+        // missing outside trading hours, but requests should succeed whenever
         for (symbol, asset_class) in [
             ("MU", AssetClass::Stocks),
             ("BRK-B", AssetClass::Stocks),
             ("QQQ", AssetClass::Etf),
         ] {
-            let volume = client.get_pre_market_volume(symbol, asset_class).await;
+            let info = client.get_nasdaq_quote(symbol, asset_class).await.unwrap();
 
-            println!("{}: {:?}", symbol, volume);
-            assert!(volume.is_ok());
+            println!(
+                "{}: volume {:?}, bid {:?}, ask {:?}",
+                symbol,
+                info.pre_market_volume(),
+                info.bid(),
+                info.ask()
+            );
+            assert!(info.data.is_some());
         }
     }
 }

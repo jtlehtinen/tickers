@@ -310,12 +310,33 @@ pub struct NasdaqQuoteInfoData {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct NasdaqPrimaryData {
     /// Shares traded in the session, e.g. "346,943.448348"
     pub volume: Option<String>,
+    /// Best bid on Nasdaq, e.g. "$343.73"
+    pub bid_price: Option<String>,
+    /// Shares at the best bid, e.g. "284"
+    pub bid_size: Option<String>,
+    /// Best ask on Nasdaq, e.g. "$343.85"
+    pub ask_price: Option<String>,
+    /// Shares at the best ask, e.g. "126"
+    pub ask_size: Option<String>,
+}
+
+/// Best bid or ask on Nasdaq
+#[derive(Debug, Clone, PartialEq)]
+pub struct NasdaqOffer {
+    pub price: f64,
+    /// Number of shares, if known
+    pub size: Option<u64>,
 }
 
 impl NasdaqQuoteInfo {
+    fn primary_data(&self) -> Option<&NasdaqPrimaryData> {
+        self.data.as_ref()?.primary_data.as_ref()
+    }
+
     /// Shares traded in pre-market, if Nasdaq is in pre-market
     pub fn pre_market_volume(&self) -> Option<u64> {
         let data = self.data.as_ref()?;
@@ -324,16 +345,50 @@ impl NasdaqQuoteInfo {
             return None;
         }
 
-        let volume = data.primary_data.as_ref()?.volume.as_ref()?;
-        let volume: f64 = volume.replace(',', "").parse().ok()?;
+        let volume = parse_nasdaq_number(self.primary_data()?.volume.as_ref()?)?;
 
         Some(volume.round() as u64)
     }
+
+    pub fn bid(&self) -> Option<NasdaqOffer> {
+        let data = self.primary_data()?;
+
+        nasdaq_offer(data.bid_price.as_deref(), data.bid_size.as_deref())
+    }
+
+    pub fn ask(&self) -> Option<NasdaqOffer> {
+        let data = self.primary_data()?;
+
+        nasdaq_offer(data.ask_price.as_deref(), data.ask_size.as_deref())
+    }
+}
+
+/// Nasdaq reports a missing price as e.g. "N/A" or "", and a missing size as
+/// e.g. "" or "0"
+fn nasdaq_offer(price: Option<&str>, size: Option<&str>) -> Option<NasdaqOffer> {
+    let price = parse_nasdaq_number(price?).filter(|price| *price > 0.0)?;
+
+    let size = size
+        .and_then(parse_nasdaq_number)
+        .filter(|size| *size > 0.0)
+        .map(|size| size.round() as u64);
+
+    Some(NasdaqOffer { price, size })
+}
+
+/// Parses Nasdaq's formatted numbers, e.g. "$1,234.56" or "346,943.448348"
+fn parse_nasdaq_number(s: &str) -> Option<f64> {
+    s.trim()
+        .trim_start_matches('$')
+        .replace(',', "")
+        .parse()
+        .ok()
+        .filter(|n: &f64| n.is_finite())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{ChartQuote, NasdaqQuoteInfo};
+    use super::{ChartQuote, NasdaqOffer, NasdaqQuoteInfo};
 
     #[test]
     fn test_deserialize_vec_defaults_nulls() {
@@ -397,5 +452,63 @@ mod tests {
             nasdaq_info(r#"{"data":{"marketStatus":"Pre-Market","primaryData":{"volume":""}}}"#);
 
         assert_eq!(info.pre_market_volume(), None);
+    }
+
+    #[test]
+    fn nasdaq_bid_ask() {
+        // AAPL on 2026-10-16 during regular hours
+        let info = nasdaq_info(
+            r#"{"data":{"symbol":"AAPL","marketStatus":"Open",
+                "primaryData":{"lastSalePrice":"$343.73","bidPrice":"$343.73",
+                "askPrice":"$1,343.85","bidSize":"284","askSize":"1,126",
+                "volume":"3,990,806.659754"}}}"#,
+        );
+
+        assert_eq!(
+            info.bid(),
+            Some(NasdaqOffer {
+                price: 343.73,
+                size: Some(284),
+            })
+        );
+        assert_eq!(
+            info.ask(),
+            Some(NasdaqOffer {
+                price: 1343.85,
+                size: Some(1126),
+            })
+        );
+    }
+
+    #[test]
+    fn nasdaq_missing_bid_ask() {
+        let info = nasdaq_info(
+            r#"{"data":{"marketStatus":"Closed","primaryData":{"bidPrice":"N/A",
+                "askPrice":"$0.00","bidSize":"","askSize":"100"}}}"#,
+        );
+
+        assert_eq!(info.bid(), None);
+        assert_eq!(info.ask(), None);
+
+        let info = nasdaq_info(r#"{"data":{"marketStatus":"Closed","primaryData":{}}}"#);
+        assert_eq!(info.bid(), None);
+        assert_eq!(info.ask(), None);
+
+        let info = nasdaq_info(r#"{"data":null}"#);
+        assert_eq!(info.bid(), None);
+        assert_eq!(info.ask(), None);
+    }
+
+    #[test]
+    fn nasdaq_bid_without_size() {
+        let info = nasdaq_info(r#"{"data":{"primaryData":{"bidPrice":"$12.50","bidSize":"N/A"}}}"#);
+
+        assert_eq!(
+            info.bid(),
+            Some(NasdaqOffer {
+                price: 12.5,
+                size: None,
+            })
+        );
     }
 }

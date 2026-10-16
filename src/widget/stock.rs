@@ -19,7 +19,7 @@ use crate::api::AssetClass;
 use crate::common::*;
 use crate::draw::{add_padding, PaddingDirection};
 use crate::service::{self, Service};
-use crate::task::{MarketState, Offer};
+use crate::task::{MarketState, NasdaqData, Offer};
 use crate::theme::style;
 use crate::{
     DEFAULT_TIMESTAMPS, ENABLE_PRE_POST, HIDE_PREV_CLOSE, HIDE_TOGGLE, OPTS, SHOW_VOLUMES,
@@ -44,10 +44,12 @@ pub struct StockState {
     pub day_change_baseline: Option<f64>,
     pub prev_close_price: Option<f64>,
     pub reg_mkt_volume: Option<String>,
-    /// From Nasdaq, only for US listings during pre-market
-    pub pre_market_volume: Option<u64>,
-    pub bid: Option<Offer>,
-    pub ask: Option<Offer>,
+    /// Best bid and ask from Yahoo, only shown for non US listings since
+    /// Yahoo's are stale for US ones
+    pub yahoo_bid: Option<Offer>,
+    pub yahoo_ask: Option<Offer>,
+    /// Only for US listings
+    pub nasdaq: Option<NasdaqData>,
     pub market_state: Option<MarketState>,
     pub prices: [Vec<Price>; 7],
     pub time_frame: TimeFrame,
@@ -77,9 +79,9 @@ impl Hash for StockState {
         self.day_change_baseline.map(|f| f.to_bits()).hash(state);
         self.prev_close_price.map(|f| f.to_bits()).hash(state);
         self.reg_mkt_volume.hash(state);
-        self.pre_market_volume.hash(state);
-        self.bid.hash(state);
-        self.ask.hash(state);
+        self.yahoo_bid.hash(state);
+        self.yahoo_ask.hash(state);
+        self.nasdaq.hash(state);
         self.market_state.hash(state);
         self.prices.hash(state);
         self.time_frame.hash(state);
@@ -125,9 +127,9 @@ impl StockState {
             day_change_baseline: None,
             prev_close_price: None,
             reg_mkt_volume: None,
-            pre_market_volume: None,
-            bid: None,
-            ask: None,
+            yahoo_bid: None,
+            yahoo_ask: None,
+            nasdaq: None,
             market_state: None,
             prices: [vec![], vec![], vec![], vec![], vec![], vec![], vec![]],
             time_frame,
@@ -262,8 +264,8 @@ impl StockState {
                     self.current_extended_price = quote.extended_price;
                     self.day_change_baseline = Some(quote.day_change_baseline);
                     self.reg_mkt_volume = Some(quote.volume);
-                    self.bid = quote.bid;
-                    self.ask = quote.ask;
+                    self.yahoo_bid = quote.bid;
+                    self.yahoo_ask = quote.ask;
                     self.market_state = quote.market_state;
                 }
                 service::stock::Update::Prices((time_frame, chart_meta, prices)) => {
@@ -274,15 +276,14 @@ impl StockState {
                         self.prev_close_price = Some(session_previous_close(&chart_meta));
                     }
 
-                    let instrument_type = chart_meta.instrument_type.as_deref();
-                    if let Some(asset_class) = nasdaq_asset_class(&self.symbol, instrument_type) {
-                        self.stock_service.track_pre_market_volume(asset_class);
-                    }
-
                     self.chart_meta = Some(chart_meta);
+
+                    if let Some(asset_class) = self.nasdaq_asset_class() {
+                        self.stock_service.track_nasdaq_quote(asset_class);
+                    }
                 }
-                service::stock::Update::PreMarketVolume(volume) => {
-                    self.pre_market_volume = volume;
+                service::stock::Update::NasdaqQuote(data) => {
+                    self.nasdaq = Some(data);
                 }
                 service::stock::Update::CompanyData(data) => {
                     self.profile = Some(*data);
@@ -310,6 +311,29 @@ impl StockState {
             .as_ref()
             .and_then(|m| m.instrument_type.as_deref())
             == Some("CRYPTOCURRENCY")
+    }
+
+    /// Nasdaq asset class of the symbol, if it's a US listing Nasdaq has data
+    /// for
+    fn nasdaq_asset_class(&self) -> Option<AssetClass> {
+        let instrument_type = self.chart_meta.as_ref()?.instrument_type.as_deref();
+
+        nasdaq_asset_class(&self.symbol, instrument_type)
+    }
+
+    /// Best bid and ask. Yahoo's are stale for US listings, often crossed or
+    /// dollars wide, so those come from Nasdaq.
+    fn offers(&self) -> (Option<&Offer>, Option<&Offer>) {
+        if self.nasdaq_asset_class().is_some() {
+            let nasdaq = self.nasdaq.as_ref();
+
+            (
+                nasdaq.and_then(|data| data.bid.as_ref()),
+                nasdaq.and_then(|data| data.ask.as_ref()),
+            )
+        } else {
+            (self.yahoo_bid.as_ref(), self.yahoo_ask.as_ref())
+        }
     }
 
     fn is_index(&self) -> bool {
@@ -540,7 +564,9 @@ impl StockState {
     /// until the market opens, so the pre-market volume comes from Nasdaq, or
     /// the previous volume is marked as such when Nasdaq doesn't have it
     pub fn volume(&self) -> Option<String> {
-        match (self.market_state, self.pre_market_volume) {
+        let pre_market_volume = self.nasdaq.as_ref().and_then(|data| data.pre_market_volume);
+
+        match (self.market_state, pre_market_volume) {
             (Some(MarketState::Pre), Some(volume)) => Some(format_volume(volume)),
             (Some(MarketState::Pre), None) => self
                 .reg_mkt_volume
@@ -640,6 +666,7 @@ impl CachableWidget<StockState> for StockWidget {
         let show_volumes = *SHOW_VOLUMES.read() && chart_type != ChartType::Kagi;
 
         let loaded = state.loaded();
+        let (bid, ask) = state.offers();
 
         let currency = match state.profile.as_ref() {
             Some(profile) => profile.price.currency.as_deref().unwrap_or("USD"),
@@ -827,7 +854,7 @@ impl CachableWidget<StockState> for StockWidget {
                             }),
                     ),
                 ]),
-                offers_line(state.bid.as_ref(), state.ask.as_ref(), currency, loaded),
+                offers_line(bid, ask, currency, loaded),
                 Line::default(),
                 Line::from(vec![
                     Span::styled("Volume:  ", label_style()),
