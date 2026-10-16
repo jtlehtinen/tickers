@@ -45,6 +45,8 @@ pub struct StockState {
     pub chart_meta: Option<ChartMeta>,
     pub chart_state: Option<ChartState>,
     pub cache_state: CacheState,
+    pub current_price_error: Option<String>,
+    pub prices_error: Option<String>,
 }
 
 impl Hash for StockState {
@@ -65,6 +67,8 @@ impl Hash for StockState {
         self.loading_tick.hash(state);
         self.prev_state_loaded.hash(state);
         self.chart_meta.hash(state);
+        self.current_price_error.hash(state);
+        self.prices_error.hash(state);
 
         if let Some(chart_state) = self.chart_state.as_ref() {
             chart_state.hash(state);
@@ -110,6 +114,8 @@ impl StockState {
             prev_state_loaded: false,
             chart_meta: None,
             cache_state: Default::default(),
+            current_price_error: None,
+            prices_error: None,
             chart_state: None,
         }
     }
@@ -122,6 +128,7 @@ impl StockState {
         self.time_frame = time_frame;
 
         self.stock_service.update_time_frame(time_frame);
+        self.prices_error = None;
 
         // Resets chart state where applicable
         self.set_chart_type(self.chart_type);
@@ -223,11 +230,13 @@ impl StockState {
         for update in updates {
             match update {
                 service::stock::Update::NewPrice((regular, post, vol)) => {
+                    self.current_price_error = None;
                     self.current_regular_price = regular;
                     self.current_post_price = post;
                     self.reg_mkt_volume = Some(vol);
                 }
                 service::stock::Update::Prices((time_frame, chart_meta, prices)) => {
+                    self.prices_error = None;
                     self.prices[time_frame.idx()] = prices;
 
                     if time_frame == TimeFrame::Day1 {
@@ -238,6 +247,12 @@ impl StockState {
                 }
                 service::stock::Update::CompanyData(data) => {
                     self.profile = Some(*data);
+                }
+                service::stock::Update::CurrentPriceError(error) => {
+                    self.current_price_error = Some(error);
+                }
+                service::stock::Update::PricesError(error) => {
+                    self.prices_error = Some(error);
                 }
             }
         }
@@ -548,6 +563,13 @@ impl StockState {
         };
 
         self.current_price() - baseline
+    }
+
+    /// The most recent error preventing the stock from loading, if any
+    pub fn error(&self) -> Option<&str> {
+        self.prices_error
+            .as_deref()
+            .or(self.current_price_error.as_deref())
     }
 
     pub fn loaded(&self) -> bool {
@@ -1045,6 +1067,16 @@ impl CachableWidget<StockState> for StockWidget {
             }
         }
 
+        // Show why the chart isn't loading instead of only a spinner
+        if !loaded {
+            if let Some(error) = state.error() {
+                let mut error_area = add_padding(graph_chunks[0], 1, PaddingDirection::Top);
+                error_area = add_padding(error_area, 10, PaddingDirection::Left);
+
+                render_error(error_area, buf, error);
+            }
+        }
+
         // Draw volumes bar chart
         if show_volumes {
             VolumeBarChart {
@@ -1113,6 +1145,13 @@ impl CachableWidget<StockState> for StockWidget {
             }
         }
     }
+}
+
+pub fn render_error(area: Rect, buf: &mut Buffer, error: &str) {
+    Paragraph::new(error)
+        .style(style().fg(THEME.loss()))
+        .wrap(Wrap { trim: true })
+        .render(area, buf);
 }
 
 pub fn get_chart_title(

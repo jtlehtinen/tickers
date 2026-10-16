@@ -235,6 +235,15 @@ impl CachableWidget<StockState> for StockSummaryWidget {
             }
         }
 
+        // Show why the chart isn't loading instead of only a spinner
+        if !loaded {
+            if let Some(error) = state.error() {
+                let error_area = add_padding(graph_chunks[0], 10, PaddingDirection::Left);
+
+                stock::render_error(error_area, buf, error);
+            }
+        }
+
         // Draw volumes bar chart
         if show_volumes {
             VolumeBarChart {

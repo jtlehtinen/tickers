@@ -42,6 +42,8 @@ pub enum Update {
     NewPrice((f64, Option<f64>, String)),
     Prices((TimeFrame, ChartMeta, Vec<Price>)),
     CompanyData(Box<CompanyData>),
+    CurrentPriceError(String),
+    PricesError(String),
 }
 
 impl Service for StockService {
@@ -54,16 +56,14 @@ impl Service for StockService {
             .current_price_handle
             .response()
             .try_iter()
-            .filter_map(Result::ok)
-            .map(Update::NewPrice);
+            .map(|result| result.map_or_else(Update::CurrentPriceError, Update::NewPrice));
         updates.extend(current_price_updates);
 
         let prices_updates = self
             .prices_handle
             .response()
             .try_iter()
-            .filter_map(Result::ok)
-            .map(Update::Prices);
+            .map(|result| result.map_or_else(Update::PricesError, Update::Prices));
         updates.extend(prices_updates);
 
         let company_updates = self
