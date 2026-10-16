@@ -1,9 +1,9 @@
-use itertools::Itertools;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::symbols::bar;
 use ratatui::widgets::{BarChart, Block, Borders, StatefulWidget, Widget};
 
+use super::resample;
 use crate::common::{Price, TimeFrame};
 use crate::theme::style;
 use crate::widget::StockState;
@@ -39,17 +39,17 @@ impl StatefulWidget for VolumeBarChart<'_> {
         let width = volume_chunks.width;
         let num_bars = width as usize;
 
-        let volumes = state.volumes(self.data);
-        let vol_count = volumes.len();
+        let vol_count = self.data.len();
 
         if vol_count > 0 {
-            let volumes = self
-                .data
-                .iter()
-                .flat_map(|p| [p.volume].repeat(num_bars))
-                .chunks(vol_count)
-                .into_iter()
-                .map(|c| ("", c.sum::<u64>() / vol_count as u64))
+            let volumes = resample(vol_count, num_bars, vol_count)
+                .map(|bucket| {
+                    let sum = bucket
+                        .map(|(idx, count)| self.data[idx].volume * count as u64)
+                        .sum::<u64>();
+
+                    ("", sum / vol_count as u64)
+                })
                 .collect::<Vec<_>>();
 
             volume_chunks.x = volume_chunks.x.saturating_sub(1);

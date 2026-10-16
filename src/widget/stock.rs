@@ -212,13 +212,6 @@ impl StockState {
         self.get_matching_prices(&prices).into_iter()
     }
 
-    pub fn volumes(&self, prices: &[Price]) -> Vec<u64> {
-        self.get_matching_prices(prices)
-            .into_iter()
-            .map(|i| i.volume)
-            .collect()
-    }
-
     pub fn current_price(&self) -> f64 {
         let enable_pre_post = { *ENABLE_PRE_POST.read() };
 

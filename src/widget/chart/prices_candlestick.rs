@@ -1,10 +1,10 @@
-use itertools::Itertools;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::text::Span;
 use ratatui::widgets::canvas::{Canvas, Line, Rectangle};
 use ratatui::widgets::{Block, Borders, StatefulWidget, Widget};
 
+use super::resample;
 use crate::common::{Price, TimeFrame};
 use crate::draw::{add_padding, PaddingDirection};
 use crate::theme::style;
@@ -138,37 +138,28 @@ impl StatefulWidget for PricesCandlestickChart<'_> {
         let width = layout[1].width - 1;
         let num_candles = width / 2;
 
-        let candles = data
-            .iter()
-            .flat_map(|p| vec![*p; num_candles as usize])
-            .chunks(x_bounds[1] as usize)
-            .into_iter()
-            .map(|c| {
-                let prices = c.filter(|p| p.close.gt(&0.0)).collect::<Vec<_>>();
+        let candles = resample(data.len(), num_candles as usize, x_bounds[1] as usize)
+            .map(|bucket| {
+                let mut prices = bucket
+                    .map(|(idx, _)| &data[idx])
+                    .filter(|p| p.close.gt(&0.0));
 
-                if prices.is_empty() {
-                    return None;
+                let first = prices.next()?;
+
+                let mut candle = Candle {
+                    open: first.open,
+                    close: first.close,
+                    high: first.high,
+                    low: first.low,
+                };
+
+                for price in prices {
+                    candle.close = price.close;
+                    candle.high = candle.high.max(price.high);
+                    candle.low = candle.low.min(price.low);
                 }
 
-                let open = prices.first().unwrap().open;
-                let close = prices.iter().last().unwrap().close;
-                let high = prices
-                    .iter()
-                    .max_by(|a, b| a.high.partial_cmp(&b.high).unwrap())
-                    .unwrap()
-                    .high;
-                let low = prices
-                    .iter()
-                    .min_by(|a, b| a.low.partial_cmp(&b.low).unwrap())
-                    .unwrap()
-                    .low;
-
-                Some(Candle {
-                    open,
-                    close,
-                    high,
-                    low,
-                })
+                Some(candle)
             })
             .collect::<Vec<_>>();
 
