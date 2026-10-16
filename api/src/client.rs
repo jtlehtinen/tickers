@@ -17,8 +17,10 @@ const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/5
 
 const NASDAQ_BASE: &str = "https://api.nasdaq.com/api";
 
-/// Nasdaq never answers some requests (e.g. without a user agent)
-const NASDAQ_TIMEOUT: Duration = Duration::from_secs(10);
+/// Fails requests that take longer, so a stalled connection (e.g. while Yahoo
+/// throttles us, or Nasdaq not answering a request) is retried instead of
+/// hanging its task forever
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Debug)]
 pub struct Client {
@@ -146,7 +148,6 @@ impl Client {
             .uri(url)
             .header(header::USER_AGENT, USER_AGENT)
             .header(header::ACCEPT, "application/json")
-            .timeout(NASDAQ_TIMEOUT)
             .body(())?;
 
         let mut res = self
@@ -313,7 +314,7 @@ impl Client {
 impl Default for Client {
     fn default() -> Client {
         #[allow(unused_mut)]
-        let mut builder = HttpClient::builder();
+        let mut builder = HttpClient::builder().timeout(REQUEST_TIMEOUT);
 
         #[cfg(target_os = "android")]
         {
