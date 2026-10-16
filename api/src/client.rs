@@ -54,6 +54,11 @@ impl Client {
 
         let status = res.status();
 
+        // Yahoo rejected the crumb / cookie, callers can fetch a new one
+        if status == http::StatusCode::UNAUTHORIZED {
+            return Err(Unauthorized.into());
+        }
+
         let mut body = res.into_body();
         let mut bytes = Vec::new();
         body.read_to_end(&mut bytes).await?;
@@ -272,6 +277,19 @@ impl Default for Client {
     }
 }
 
+/// Error returned when Yahoo rejects a request as unauthorized, which means
+/// the crumb (or its cookie) is invalid or has expired.
+#[derive(Debug, Clone, Copy)]
+pub struct Unauthorized;
+
+impl std::fmt::Display for Unauthorized {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Yahoo rejected the request (invalid or expired crumb)")
+    }
+}
+
+impl std::error::Error for Unauthorized {}
+
 /// Percent encodes a symbol for use as a URL path segment.
 ///
 /// Characters used by Yahoo symbols (e.g. `^GSPC`, `ES=F`, `DX-Y.NYB`) are
@@ -362,6 +380,19 @@ mod tests {
                 panic!();
             }
         }
+    }
+
+    #[async_std::test]
+    #[ignore = "requires network access to Yahoo Finance"]
+    async fn test_invalid_crumb_is_unauthorized() {
+        let client = Client::new();
+
+        let mut crumb = client.get_crumb().await.unwrap();
+        crumb.crumb = String::from("invalid");
+
+        let err = client.get_company_data("SPY", crumb).await.unwrap_err();
+
+        assert!(err.is::<Unauthorized>(), "{:#}", err);
     }
 
     #[async_std::test]

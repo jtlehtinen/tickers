@@ -32,7 +32,7 @@ impl AsyncTask for CurrentPrice {
 
             let crumb = crumb().await?;
 
-            let response = crate::CLIENT.get_company_data(symbol, crumb).await?;
+            let response = check_crumb(crate::CLIENT.get_company_data(symbol, crumb).await).await?;
 
             let regular_price = response.price.regular_market_price.price;
 

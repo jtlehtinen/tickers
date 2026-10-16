@@ -16,6 +16,7 @@ pub use self::options_data::OptionsData;
 pub use self::options_dates::OptionsDates;
 pub use self::prices::Prices;
 use crate::api::model::CrumbData;
+use crate::api::Unauthorized;
 use crate::{CLIENT, DATA_RECEIVED, UPDATE_INTERVAL};
 
 mod company;
@@ -34,6 +35,18 @@ const CRUMB_RETRY_INTERVAL: Duration = Duration::from_secs(5);
 lazy_static! {
     static ref YAHOO_CRUMB: RwLock<Option<CrumbData>> = Default::default();
     static ref LAST_CRUMB_FAILURE: Mutex<Option<(Instant, String)>> = Default::default();
+}
+
+/// Clears the cached crumb if `result` failed because Yahoo rejected it, so the
+/// next request fetches a new one
+pub async fn check_crumb<T>(result: Result<T>) -> Result<T> {
+    if let Err(e) = &result {
+        if e.is::<Unauthorized>() {
+            YAHOO_CRUMB.write().await.take();
+        }
+    }
+
+    result
 }
 
 /// Returns the Yahoo crumb, fetching it on first use.

@@ -1,4 +1,4 @@
-pub use self::client::Client;
+pub use self::client::{Client, Unauthorized};
 
 mod client;
 pub mod model;

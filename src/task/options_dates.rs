@@ -34,9 +34,12 @@ impl AsyncTask for OptionsDates {
 
             let crumb = crumb().await?;
 
-            crate::CLIENT
-                .get_options_expiration_dates(symbol, crumb)
-                .await
+            check_crumb(
+                crate::CLIENT
+                    .get_options_expiration_dates(symbol, crumb)
+                    .await,
+            )
+            .await
         })
     }
 }

@@ -33,7 +33,7 @@ impl AsyncTask for Company {
 
             let crumb = crumb().await?;
 
-            crate::CLIENT.get_company_data(symbol, crumb).await
+            check_crumb(crate::CLIENT.get_company_data(symbol, crumb).await).await
         })
     }
 }
