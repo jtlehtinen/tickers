@@ -102,8 +102,10 @@ impl Service for StockService {
         updates
     }
 
+    /// Keeps updating the quote in the background, since the tabs show the
+    /// change of every stock
     fn pause(&self) {
-        self.current_price_handle.pause();
+        self.current_price_handle.background();
         self.prices_handle.pause();
         self.company_handle.pause();
 

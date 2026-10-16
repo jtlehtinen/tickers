@@ -31,6 +31,10 @@ mod prices;
 /// How often one-shot tasks are retried until they succeed
 const ONE_SHOT_RETRY_INTERVAL: Duration = Duration::from_secs(5);
 
+/// How often tasks run in the background, e.g. quotes of stocks in tabs that
+/// aren't shown
+const BACKGROUND_INTERVAL: Duration = Duration::from_secs(15);
+
 /// Minimum time between attempts to fetch the Yahoo crumb
 const CRUMB_RETRY_INTERVAL: Duration = Duration::from_secs(5);
 
@@ -120,23 +124,28 @@ pub trait AsyncTask: 'static {
             .unwrap_or(ONE_SHOT_RETRY_INTERVAL)
             .max(Duration::from_secs(*UPDATE_INTERVAL));
 
+        let background_interval = interval.max(BACKGROUND_INTERVAL);
+
         let handle = task::spawn(async move {
             let mut last_updated: Option<Instant> = None;
 
-            let mut paused = false;
+            let mut command = AsyncTaskCommand::Resume;
 
             loop {
-                if let Ok(command) = command_receiver.try_recv() {
-                    match command {
-                        AsyncTaskCommand::Resume => paused = false,
-                        AsyncTaskCommand::Pause => paused = true,
-                    }
+                if let Ok(new_command) = command_receiver.try_recv() {
+                    command = new_command;
                 }
 
                 // Always execute the task initially, then every interval while not paused
-                let is_due = match last_updated {
-                    None => true,
-                    Some(last_updated) => !paused && last_updated.elapsed() >= interval,
+                let is_due = match (last_updated, command) {
+                    (None, _) => true,
+                    (Some(_), AsyncTaskCommand::Pause) => false,
+                    (Some(last_updated), AsyncTaskCommand::Resume) => {
+                        last_updated.elapsed() >= interval
+                    }
+                    (Some(last_updated), AsyncTaskCommand::Background) => {
+                        last_updated.elapsed() >= background_interval
+                    }
                 };
 
                 if is_due {
@@ -168,9 +177,12 @@ pub trait AsyncTask: 'static {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 enum AsyncTaskCommand {
     Pause,
     Resume,
+    /// Run less often
+    Background,
 }
 
 /// Result of a task, the error being a displayable message
@@ -193,6 +205,12 @@ impl<R> AsyncTaskHandle<R> {
 
     pub fn resume(&self) {
         let _ = self.command_sender.try_send(AsyncTaskCommand::Resume);
+    }
+
+    /// Runs the task every `BACKGROUND_INTERVAL`, for data that's shown even
+    /// when its widget isn't
+    pub fn background(&self) {
+        let _ = self.command_sender.try_send(AsyncTaskCommand::Background);
     }
 }
 

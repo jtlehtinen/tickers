@@ -1,8 +1,10 @@
 use ratatui::backend::Backend;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
+use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Tabs, Wrap};
 use ratatui::{Frame, Terminal};
+use unicode_width::UnicodeWidthStr;
 
 use crate::app::{App, Mode, ScrollDirection};
 use crate::common::TimeFrame;
@@ -97,14 +99,25 @@ pub fn draw(terminal: &mut Terminal<impl Backend>, app: &mut App) {
 fn draw_main(frame: &mut Frame, app: &mut App, area: Rect) {
     const HELP_ICON: &str = "Help '?'";
 
-    // Sidebar is as wide as the longest symbol (or help icon), plus borders and padding
-    let content_width = app
+    let tabs = app
         .stocks
         .iter()
-        .map(|s| s.symbol().chars().count())
-        .chain((!app.hide_help).then_some(HELP_ICON.len()))
+        .map(|s| (s.symbol(), s.day_pct_change()))
+        .collect::<Vec<_>>();
+    let symbol_width = tabs
+        .iter()
+        .map(|(symbol, _)| symbol.width())
         .max()
-        .unwrap_or(0) as u16;
+        .unwrap_or(0);
+    let pct_width = tabs
+        .iter()
+        .filter_map(|(_, pct)| pct.map(|pct| format_pct(pct).width()))
+        .max()
+        .unwrap_or(0);
+
+    // Sidebar is as wide as the longest tab (or help icon), plus borders and padding
+    let tab_width = symbol_width + if pct_width > 0 { 2 + pct_width } else { 0 };
+    let content_width = tab_width.max(if app.hide_help { 0 } else { HELP_ICON.width() }) as u16;
 
     // layout[0] - Main widget
     // layout[1] - Sidebar
@@ -130,19 +143,45 @@ fn draw_main(frame: &mut Frame, app: &mut App, area: Rect) {
 
         // Draw tabs
         {
-            let tabs: Vec<_> = app
-                .stocks
+            // Changes are right aligned, at the right edge of the sidebar
+            let pct_width = (content_width as usize).saturating_sub(symbol_width + 2);
+
+            let tabs: Vec<_> = tabs
                 .iter()
-                .map(|w| ListItem::new(w.symbol()))
+                .enumerate()
+                .map(|(idx, (symbol, pct))| {
+                    let symbol_style = if idx == app.current_tab {
+                        style()
+                            .fg(THEME.text_primary())
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        style().fg(THEME.text_secondary())
+                    };
+
+                    let line = match pct {
+                        Some(pct) => Line::from(vec![
+                            Span::styled(format!("{:<symbol_width$}  ", symbol), symbol_style),
+                            Span::styled(
+                                format!("{:>pct_width$}", format_pct(*pct)),
+                                style().fg(if *pct >= 0.0 {
+                                    THEME.profit()
+                                } else {
+                                    THEME.loss()
+                                }),
+                            ),
+                        ]),
+                        None => Line::from(Span::styled(symbol.to_string(), symbol_style)),
+                    };
+
+                    ListItem::new(line)
+                })
                 .collect();
 
             let mut state = ListState::default();
             state.select(Some(app.current_tab));
 
             frame.render_stateful_widget(
-                List::new(tabs)
-                    .style(style().fg(THEME.text_secondary()))
-                    .highlight_style(style().fg(THEME.text_primary())),
+                List::new(tabs).highlight_style(style().bg(THEME.highlight_unfocused())),
                 sidebar[0],
                 &mut state,
             );
@@ -255,6 +294,11 @@ fn draw_main(frame: &mut Frame, app: &mut App, area: Rect) {
 
 fn draw_add_stock(frame: &mut Frame, app: &mut App, area: Rect) {
     frame.render_stateful_widget(AddStockWidget {}, area, &mut app.add_stock);
+}
+
+/// Today's change shown in the tabs, e.g. -1.67%
+fn format_pct(pct: f64) -> String {
+    format!("{:.2}%", pct * 100.0)
 }
 
 fn draw_summary(frame: &mut Frame, app: &mut App, mut area: Rect) {

@@ -39,6 +39,7 @@ impl AsyncTask for CurrentPrice {
 
             Ok(Quote {
                 regular_price: response.price.regular_market_price.price,
+                day_change_baseline: day_change_baseline(&response.price),
                 extended_price: extended_hours_price(&response.price),
                 volume: response.price.regular_market_volume.fmt.unwrap_or_default(),
                 bid: detail.and_then(|d| Offer::new(d.bid.as_ref(), d.bid_size.as_ref())),
@@ -56,6 +57,8 @@ impl AsyncTask for CurrentPrice {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Quote {
     pub regular_price: f64,
+    /// Price today's change is measured against
+    pub day_change_baseline: f64,
     /// Pre or post market price, if it's more recent than the regular price
     pub extended_price: Option<f64>,
     pub volume: String,
@@ -126,6 +129,16 @@ impl std::hash::Hash for Offer {
     }
 }
 
+/// Price today's change is measured against: the last session's close until
+/// the market opens (which Yahoo still reports as the regular market price),
+/// the close before it after that. Same as the 1D chart's previous close.
+fn day_change_baseline(price: &CompanyPrice) -> f64 {
+    match price.market_state.as_deref() {
+        Some("PRE" | "PREPRE") => price.regular_market_price.price,
+        _ => price.regular_market_previous_close.price,
+    }
+}
+
 /// The latest pre or post market price, if it's more recent than the regular
 /// market price. Yahoo keeps reporting the previous session's post market price
 /// during the next pre market (and both during regular hours), so their times
@@ -184,6 +197,22 @@ mod tests {
         let json = PRE_MARKET.replace("1792094401", "1792160000");
 
         assert_eq!(extended_hours_price(&price(&json)), None);
+    }
+
+    #[test]
+    fn day_change_before_open_is_from_last_close() {
+        assert_eq!(day_change_baseline(&price(PRE_MARKET)), 931.24);
+
+        let json = PRE_MARKET.replace(r#""PRE""#, r#""PREPRE""#);
+        assert_eq!(day_change_baseline(&price(&json)), 931.24);
+    }
+
+    #[test]
+    fn day_change_after_open_is_from_previous_close() {
+        for state in ["REGULAR", "POST", "POSTPOST", "CLOSED"] {
+            let json = PRE_MARKET.replace(r#""PRE""#, &format!(r#""{}""#, state));
+            assert_eq!(day_change_baseline(&price(&json)), 925.0, "{}", state);
+        }
     }
 
     #[test]

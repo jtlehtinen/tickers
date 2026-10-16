@@ -34,6 +34,8 @@ pub struct StockState {
     pub profile: Option<CompanyData>,
     pub current_regular_price: f64,
     pub current_extended_price: Option<f64>,
+    /// Price today's change is measured against, from the quote
+    pub day_change_baseline: Option<f64>,
     pub prev_close_price: Option<f64>,
     pub reg_mkt_volume: Option<String>,
     /// From Nasdaq, only for US listings during pre-market
@@ -64,6 +66,7 @@ impl Hash for StockState {
         // Only fetched once, so just need to check if Some
         self.profile.is_some().hash(state);
         self.current_extended_price.map(|f| f.to_bits()).hash(state);
+        self.day_change_baseline.map(|f| f.to_bits()).hash(state);
         self.prev_close_price.map(|f| f.to_bits()).hash(state);
         self.reg_mkt_volume.hash(state);
         self.pre_market_volume.hash(state);
@@ -110,6 +113,7 @@ impl StockState {
             profile: None,
             current_regular_price: 0.0,
             current_extended_price: None,
+            day_change_baseline: None,
             prev_close_price: None,
             reg_mkt_volume: None,
             pre_market_volume: None,
@@ -245,6 +249,7 @@ impl StockState {
                     self.current_price_error = None;
                     self.current_regular_price = quote.regular_price;
                     self.current_extended_price = quote.extended_price;
+                    self.day_change_baseline = Some(quote.day_change_baseline);
                     self.reg_mkt_volume = Some(quote.volume);
                     self.bid = quote.bid;
                     self.ask = quote.ask;
@@ -519,6 +524,14 @@ impl StockState {
                 .map(|volume| format!("{} (prev)", volume)),
             _ => self.reg_mkt_volume.clone(),
         }
+    }
+
+    /// Today's change, whatever the time frame
+    pub fn day_pct_change(&self) -> Option<f64> {
+        let baseline = self.day_change_baseline.filter(|price| *price > 0.0)?;
+        let current = Some(self.current_price()).filter(|price| *price > 0.0)?;
+
+        Some(current / baseline - 1.0)
     }
 
     /// The most recent error preventing the stock from loading, if any
