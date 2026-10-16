@@ -6,7 +6,6 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::block::Title;
 use ratatui::widgets::{Block, Borders, Paragraph, StatefulWidget, Tabs, Widget, Wrap};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
@@ -1024,7 +1023,7 @@ impl CachableWidget<StockState> for StockWidget {
                 .split(chunks[2])
                 .to_vec();
 
-            let tab_names = tab_names.iter().map(|s| Line::from(*s)).collect();
+            let tab_names: Vec<Line> = tab_names.iter().map(|s| Line::from(*s)).collect();
 
             Tabs::new(tab_names)
                 .select(state.time_frame.idx())
@@ -1167,10 +1166,10 @@ fn stale_label(state: &StockState) -> Option<String> {
 }
 
 /// Right aligned block title marking a stale quote
-pub fn stale_title<'a>(state: &StockState) -> Option<Title<'a>> {
+pub fn stale_title<'a>(state: &StockState) -> Option<Line<'a>> {
     let label = stale_label(state)?;
 
-    Some(Title::from(Span::styled(label, style().fg(THEME.loss()))).alignment(Alignment::Right))
+    Some(Line::from(Span::styled(label, style().fg(THEME.loss()))).alignment(Alignment::Right))
 }
 
 /// Truncates `title` to `max_width` display columns, ending it with an elipsis

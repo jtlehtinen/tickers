@@ -2,7 +2,7 @@ use std::hash::{Hash, Hasher};
 use std::str::FromStr;
 use std::time::Duration;
 
-use chrono::{Datelike, NaiveDateTime, Weekday};
+use chrono::{DateTime, Datelike, Weekday};
 use itertools::izip;
 use serde::Deserialize;
 use tickrs_api::Interval;
@@ -479,14 +479,14 @@ pub fn format_volume(volume: u64) -> String {
 }
 
 fn get_weekday(epoch: i64) -> Weekday {
-    NaiveDateTime::from_timestamp_opt(epoch, 0)
+    DateTime::from_timestamp(epoch, 0)
         .unwrap_or_default()
         .weekday()
 }
 
 #[cfg(test)]
 mod tests {
-    use chrono::{Datelike, NaiveDateTime, Weekday};
+    use chrono::{DateTime, Datelike, Weekday};
 
     use super::{
         format_money, format_price, format_volume, session_previous_close, MarketTimes, DAY,
@@ -499,9 +499,7 @@ mod tests {
     const MONDAY: i64 = 1_767_571_200;
 
     fn weekday(epoch: i64) -> Weekday {
-        NaiveDateTime::from_timestamp_opt(epoch, 0)
-            .unwrap()
-            .weekday()
+        DateTime::from_timestamp(epoch, 0).unwrap().weekday()
     }
 
     /// The implementation prior to iterating in exchange local time

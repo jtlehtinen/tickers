@@ -45,7 +45,7 @@ pub trait CachableWidget<T: Hash>: StatefulWidget<State = T> + Sized {
         // If current hash and layout matches previous, use cached cells instead of re-rendering
         if hash == cache.prev_hash && area == cache.prev_area {
             for ((x, y), cached_cell) in positions(cached_area).zip(&cache.prev_content) {
-                *buf.get_mut(x, y) = cached_cell.clone();
+                buf[(x, y)] = cached_cell.clone();
             }
         }
         // Otherwise re-render and store those values in the cache
@@ -56,7 +56,7 @@ pub trait CachableWidget<T: Hash>: StatefulWidget<State = T> + Sized {
             cache.prev_hash = hash;
             cache.prev_area = area;
             cache.prev_content = positions(cached_area)
-                .map(|(x, y)| buf.get(x, y).clone())
+                .map(|(x, y)| buf[(x, y)].clone())
                 .collect();
         }
     }
@@ -120,7 +120,7 @@ mod tests {
                 for x in area.left()..area.right() {
                     let symbol =
                         format!("{}", (x as usize + y as usize + state.value as usize) % 10);
-                    buf.get_mut(x, y).set_symbol(&symbol);
+                    buf[(x, y)].set_symbol(&symbol);
                 }
             }
         }
@@ -159,7 +159,7 @@ mod tests {
         for y in 0..10 {
             for x in 0..20 {
                 let inside = (2..7).contains(&x) && (3..7).contains(&y);
-                assert_eq!(cached.get(x, y).symbol() == " ", !inside, "({}, {})", x, y);
+                assert_eq!(cached[(x, y)].symbol() == " ", !inside, "({}, {})", x, y);
             }
         }
     }

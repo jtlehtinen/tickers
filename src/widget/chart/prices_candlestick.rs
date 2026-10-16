@@ -194,9 +194,7 @@ impl StatefulWidget for PricesCandlestickChart<'_> {
                         (plot.bottom() - 1, "▼")
                     };
 
-                    buf.get_mut(plot.x + column, row)
-                        .set_symbol(marker)
-                        .set_fg(color);
+                    buf[(plot.x + column, row)].set_symbol(marker).set_fg(color);
                 }
             }
         } else {

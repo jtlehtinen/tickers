@@ -475,7 +475,7 @@ fn render_kagi_options(mut area: Rect, buf: &mut Buffer, state: &ChartConfigurat
 
         let area = buf.area;
         if (area.left()..area.right()).contains(&x) && (area.top()..area.bottom()).contains(&y) {
-            buf.get_mut(x, y).bg = THEME.text_secondary();
+            buf[(x, y)].bg = THEME.text_secondary();
         }
     }
 }

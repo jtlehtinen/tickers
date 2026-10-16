@@ -484,7 +484,7 @@ pub fn render_session_bounds(buf: &mut Buffer, plot: Rect, x_axis: &XAxis, state
         };
 
         for y in plot.top()..plot.bottom() {
-            let cell = buf.get_mut(plot.x + column, y);
+            let cell = &mut buf[(plot.x + column, y)];
 
             // Blank braille is empty too
             if matches!(cell.symbol(), " " | "\u{2800}") {
@@ -520,7 +520,7 @@ pub fn render_ticks(buf: &mut Buffer, plot: Rect, label_area: Rect, ticks: &[(u1
             continue;
         }
 
-        buf.get_mut(x, axis_y)
+        buf[(x, axis_y)]
             .set_symbol("┬")
             .set_style(style().fg(THEME.border_axis()));
 
