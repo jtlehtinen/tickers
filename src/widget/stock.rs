@@ -984,12 +984,19 @@ impl CachableWidget<StockState> for StockWidget {
         }
 
         // graph_chunks[0] = prices
-        // graph_chunks[1] = volume
+        // graph_chunks[1] = volume, with a blank row above it and the time
+        // labels below it
         let graph_chunks: Vec<Rect> = if show_volumes {
-            Layout::default()
-                .constraints([Constraint::Min(0), Constraint::Percentage(25)].as_ref())
+            let volume_rows = (chunks[1].height / 6).clamp(3, 6);
+            let volume_height = 1 + volume_rows + if show_x_labels { 2 } else { 0 };
+
+            let mut graph_chunks = Layout::default()
+                .constraints([Constraint::Min(0), Constraint::Length(volume_height)].as_ref())
                 .split(chunks[1])
-                .to_vec()
+                .to_vec();
+            graph_chunks[1] = add_padding(graph_chunks[1], 1, PaddingDirection::Top);
+
+            graph_chunks
         } else {
             Layout::default()
                 .constraints([Constraint::Min(0)].as_ref())
@@ -1007,7 +1014,7 @@ impl CachableWidget<StockState> for StockWidget {
                     is_profit: pct_change >= 0.0,
                     is_summary: false,
                     loaded,
-                    show_x_labels,
+                    show_x_labels: show_x_labels && !show_volumes,
                     show_y_labels: true,
                 }
                 .render(graph_chunks[0], buf, state);
@@ -1017,7 +1024,7 @@ impl CachableWidget<StockState> for StockWidget {
                     data: &data,
                     x_axis: &x_axis,
                     loaded,
-                    show_x_labels,
+                    show_x_labels: show_x_labels && !show_volumes,
                     show_y_labels: true,
                     is_summary: false,
                 }
@@ -1027,7 +1034,7 @@ impl CachableWidget<StockState> for StockWidget {
                 PricesKagiChart {
                     data: &data,
                     loaded,
-                    show_x_labels,
+                    show_x_labels: show_x_labels && !show_volumes,
                     show_y_labels: true,
                     is_summary: false,
                     kagi_options: state.chart_configuration.kagi_options.clone(),
@@ -1051,6 +1058,7 @@ impl CachableWidget<StockState> for StockWidget {
             VolumeBarChart {
                 data: &data,
                 x_axis: &x_axis,
+                show_x_labels,
             }
             .render(graph_chunks[1], buf, state);
         }

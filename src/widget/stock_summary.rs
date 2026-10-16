@@ -261,6 +261,7 @@ impl CachableWidget<StockState> for StockSummaryWidget {
             VolumeBarChart {
                 data: &data,
                 x_axis: &x_axis,
+                show_x_labels: false,
             }
             .render(graph_chunks[1], buf, state);
         }
