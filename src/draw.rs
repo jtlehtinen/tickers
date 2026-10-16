@@ -106,18 +106,18 @@ fn draw_main(frame: &mut Frame, app: &mut App, area: Rect) {
         .max()
         .unwrap_or(0) as u16;
 
-    // layout[0] - Sidebar
-    // layout[1] - Main widget
+    // layout[0] - Main widget
+    // layout[1] - Sidebar
     let mut layout = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Length(content_width + 4), Constraint::Min(0)])
+        .constraints([Constraint::Min(0), Constraint::Length(content_width + 4)])
         .split(area)
         .to_vec();
 
     if !app.stocks.is_empty() {
-        frame.render_widget(crate::widget::block::new(" Tabs "), layout[0]);
-        let padded = add_padding(layout[0], 1, PaddingDirection::All);
-        layout[0] = add_padding(padded, 1, PaddingDirection::Left);
+        frame.render_widget(crate::widget::block::new(" Tabs "), layout[1]);
+        let padded = add_padding(layout[1], 1, PaddingDirection::All);
+        layout[1] = add_padding(padded, 1, PaddingDirection::Left);
 
         // sidebar[0] - Stock symbol tabs
         // sidebar[1] - (Optional) help icon
@@ -126,7 +126,7 @@ fn draw_main(frame: &mut Frame, app: &mut App, area: Rect) {
                 Constraint::Min(0),
                 Constraint::Length(!app.hide_help as u16),
             ])
-            .split(layout[0]);
+            .split(layout[1]);
 
         // Draw tabs
         {
@@ -157,7 +157,7 @@ fn draw_main(frame: &mut Frame, app: &mut App, area: Rect) {
             );
         }
     } else {
-        layout[1] = area;
+        layout[0] = area;
     }
 
     // Make sure only displayed stock has network activity
@@ -178,10 +178,10 @@ fn draw_main(frame: &mut Frame, app: &mut App, area: Rect) {
                 Layout::default()
                     .direction(Direction::Horizontal)
                     .constraints([Constraint::Min(0), Constraint::Length(44)])
-                    .split(layout[1])
+                    .split(layout[0])
                     .to_vec()
             } else {
-                vec![layout[1]]
+                vec![layout[0]]
             };
 
         match app.mode {
@@ -194,7 +194,7 @@ fn draw_main(frame: &mut Frame, app: &mut App, area: Rect) {
                 if main_chunks[0].width >= 19 {
                     frame.render_stateful_widget(StockWidget {}, main_chunks[0], stock);
                 } else {
-                    main_chunks[1] = layout[1];
+                    main_chunks[1] = layout[0];
                 }
             }
             _ => {}
