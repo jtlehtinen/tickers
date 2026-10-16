@@ -3,7 +3,7 @@ use ratatui::layout::Rect;
 use ratatui::widgets::canvas::{Canvas, Line, Rectangle};
 use ratatui::widgets::{Block, Borders, StatefulWidget, Widget};
 
-use super::x_axis::{render_ticks, ChartAreas, XAxis};
+use super::x_axis::{render_session_bounds, render_ticks, ChartAreas, XAxis};
 use super::y_axis::render_y_labels;
 use crate::common::{Price, TimeFrame};
 use crate::draw::{add_padding, PaddingDirection};
@@ -178,6 +178,8 @@ impl StatefulWidget for PricesCandlestickChart<'_> {
                 })
                 .border_style(style().fg(THEME.border_axis()))
                 .render(areas.chart, buf);
+
+            render_session_bounds(buf, areas.plot, self.x_axis, state);
         }
 
         // Draw x labels, after the chart so tick marks go on top of its axis line

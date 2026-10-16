@@ -3,7 +3,7 @@ use ratatui::layout::Rect;
 use ratatui::symbols::bar;
 use ratatui::widgets::{BarChart, Block, Borders, StatefulWidget, Widget};
 
-use super::x_axis::{plot_columns, XAxis};
+use super::x_axis::{plot_columns, render_session_bounds, XAxis};
 use crate::common::Price;
 use crate::theme::style;
 use crate::widget::StockState;
@@ -17,7 +17,7 @@ pub struct VolumeBarChart<'a> {
 impl StatefulWidget for VolumeBarChart<'_> {
     type State = StockState;
 
-    fn render(self, area: Rect, buf: &mut Buffer, _state: &mut Self::State) {
+    fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         let mut volume_chunks = area;
         volume_chunks.height += 1;
 
@@ -50,19 +50,20 @@ impl StatefulWidget for VolumeBarChart<'_> {
                 buf,
             );
 
+        let plot = Rect {
+            x: plot_x,
+            width: plot_width,
+            ..volume_chunks
+        };
+
         BarChart::default()
             .bar_width(1)
             .bar_gap(0)
             .bar_set(bar::NINE_LEVELS)
             .style(style().fg(THEME.gray()))
             .data(&bars)
-            .render(
-                Rect {
-                    x: plot_x,
-                    width: plot_width,
-                    ..volume_chunks
-                },
-                buf,
-            );
+            .render(plot, buf);
+
+        render_session_bounds(buf, plot, self.x_axis, state);
     }
 }

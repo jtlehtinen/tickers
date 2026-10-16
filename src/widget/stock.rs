@@ -377,6 +377,23 @@ impl StockState {
         (start, end)
     }
 
+    /// Open and close of the regular session, on 1D when pre and post market
+    /// are shown
+    pub fn regular_session(&self) -> Option<(i64, i64)> {
+        if self.time_frame != TimeFrame::Day1 || !*ENABLE_PRE_POST.read() {
+            return None;
+        }
+
+        let regular = &self
+            .chart_meta
+            .as_ref()?
+            .current_trading_period
+            .as_ref()?
+            .regular;
+
+        Some((regular.start, regular.end))
+    }
+
     pub fn regular_start_end_idx(&self, data: &[Price]) -> (Option<usize>, Option<usize>) {
         let reg_start = self
             .chart_meta

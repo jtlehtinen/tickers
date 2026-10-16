@@ -3,7 +3,7 @@ use ratatui::layout::Rect;
 use ratatui::symbols::Marker;
 use ratatui::widgets::{Axis, Block, Borders, Chart, Dataset, GraphType, StatefulWidget, Widget};
 
-use super::x_axis::{render_ticks, ChartAreas, XAxis};
+use super::x_axis::{render_session_bounds, render_ticks, ChartAreas, XAxis};
 use super::y_axis::render_y_labels;
 use crate::common::{cast_historical_as_price, zeros_as_pre, Price, TimeFrame, TradingPeriod};
 use crate::draw::{add_padding, PaddingDirection};
@@ -220,6 +220,10 @@ impl StatefulWidget for PricesLineChart<'_> {
         }
 
         chart.render(areas.chart, buf);
+
+        if self.loaded {
+            render_session_bounds(buf, areas.plot, self.x_axis, state);
+        }
 
         // Draw x labels, after the chart so tick marks go on top of its axis line
         if let (Some(x_labels), true) = (areas.x_labels, self.loaded) {

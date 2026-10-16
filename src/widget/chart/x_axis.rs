@@ -139,6 +139,8 @@ fn column_fractions(column: u16, width: u16) -> (f64, f64) {
 ///   their time and the rest of the session is visible as empty space
 /// - other time frames: a slot per price, skipping time the market is closed
 pub struct XAxis {
+    /// Start of the session on a 1D axis
+    session_start: Option<i64>,
     num_slots: f64,
     /// Slot of each price
     slots: Vec<f64>,
@@ -199,6 +201,7 @@ impl XAxis {
             .collect();
 
         XAxis {
+            session_start: Some(start),
             num_slots,
             slots,
             ticks: Ticks {
@@ -257,6 +260,7 @@ impl XAxis {
             .collect();
 
         XAxis {
+            session_start: None,
             num_slots,
             slots,
             ticks: Ticks {
@@ -283,6 +287,18 @@ impl XAxis {
     /// `x` value to plot the price at `idx` at, the middle of its slot
     pub fn x(&self, idx: usize) -> f64 {
         self.slots[idx] + 0.5
+    }
+
+    /// Column `time` is drawn at on a 1D axis in a plot area `width` columns
+    /// wide, if it's within the session and not on its edges
+    pub fn time_column(&self, time: i64, width: u16) -> Option<u16> {
+        let fraction = (time - self.session_start?) as f64 / 60.0 / self.num_slots;
+
+        if fraction > 0.0 && fraction < 1.0 {
+            column(fraction, width)
+        } else {
+            None
+        }
     }
 
     /// The labeled ticks to show on a plot area `width` columns wide
@@ -455,6 +471,29 @@ fn drop_colliding(ticks: Vec<(u16, String)>) -> Vec<(u16, String)> {
 /// Draws a tick mark on the x axis line below `plot` for each tick, and the
 /// tick's label centered below it in `label_area`. Labels that would overlap
 /// the previous label are skipped along with their tick mark.
+/// Draws dotted lines at the open and close of the regular session in the
+/// empty cells of `plot`, separating it from pre and post market on 1D
+pub fn render_session_bounds(buf: &mut Buffer, plot: Rect, x_axis: &XAxis, state: &StockState) {
+    let Some((open, close)) = state.regular_session() else {
+        return;
+    };
+
+    for time in [open, close] {
+        let Some(column) = x_axis.time_column(time, plot.width) else {
+            continue;
+        };
+
+        for y in plot.top()..plot.bottom() {
+            let cell = buf.get_mut(plot.x + column, y);
+
+            // Blank braille is empty too
+            if matches!(cell.symbol(), " " | "\u{2800}") {
+                cell.set_symbol("┊").set_fg(THEME.gray());
+            }
+        }
+    }
+}
+
 pub fn render_ticks(buf: &mut Buffer, plot: Rect, label_area: Rect, ticks: &[(u16, String)]) {
     let axis_y = plot.bottom();
     let label_y = label_area.top();
@@ -551,6 +590,42 @@ mod tests {
         assert_eq!(axis.slot(0), 0.0);
         assert_eq!(axis.slot(30), 40.0);
         assert_eq!(axis.x(data.len() - 1), 119.5);
+    }
+
+    #[test]
+    fn session_time_column() {
+        let start = MONDAY + 8 * HOUR;
+        let end = start + 10 * HOUR;
+
+        let utc = FixedOffset::east_opt(0).unwrap();
+        let axis = XAxis::session(&[], start, end, &utc);
+
+        // 10 hours in 100 columns
+        assert_eq!(axis.time_column(start + 2 * HOUR, 100), Some(19));
+        assert_eq!(axis.time_column(start + 5 * HOUR, 100), Some(49));
+    }
+
+    #[test]
+    fn session_time_column_excludes_edges() {
+        let start = MONDAY + 8 * HOUR;
+        let end = start + 10 * HOUR;
+
+        let utc = FixedOffset::east_opt(0).unwrap();
+        let axis = XAxis::session(&[], start, end, &utc);
+
+        assert_eq!(axis.time_column(start, 100), None);
+        assert_eq!(axis.time_column(end, 100), None);
+        assert_eq!(axis.time_column(start - HOUR, 100), None);
+        assert_eq!(axis.time_column(end + HOUR, 100), None);
+    }
+
+    #[test]
+    fn trading_days_have_no_time_column() {
+        let utc = FixedOffset::east_opt(0).unwrap();
+        let data = vec![price(MONDAY), price(MONDAY + DAY_SECS)];
+        let axis = XAxis::trading_days(&data, &utc);
+
+        assert_eq!(axis.time_column(MONDAY + HOUR, 100), None);
     }
 
     #[test]
