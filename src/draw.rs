@@ -247,7 +247,7 @@ fn draw_summary(frame: &mut Frame, app: &mut App, mut area: Rect) {
     area = add_padding(area, 1, PaddingDirection::Right);
 
     // Space available for the stocks after taking borders and such into account
-    let height = area.height - 3 + app.hide_help as u16;
+    let height = (area.height + app.hide_help as u16).saturating_sub(3);
 
     // The minimum height a stock chart will use
     let stock_widget_height = (height / app.stocks.len() as u16).max(6);
@@ -353,7 +353,7 @@ fn draw_summary(frame: &mut Frame, app: &mut App, mut area: Rect) {
         frame.render_widget(Clear, current);
         frame.render_widget(Block::default().style(style()), current);
 
-        let offset = current.height - 2;
+        let offset = current.height.saturating_sub(2);
         current = add_padding(current, offset, PaddingDirection::Top);
 
         frame.render_widget(
