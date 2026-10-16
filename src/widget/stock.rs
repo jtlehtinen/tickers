@@ -31,7 +31,7 @@ pub struct StockState {
     pub stock_service: service::stock::StockService,
     pub profile: Option<CompanyData>,
     pub current_regular_price: f64,
-    pub current_post_price: Option<f64>,
+    pub current_extended_price: Option<f64>,
     pub prev_close_price: Option<f64>,
     pub reg_mkt_volume: Option<String>,
     pub prices: [Vec<Price>; 7],
@@ -56,7 +56,7 @@ impl Hash for StockState {
         self.current_regular_price.to_bits().hash(state);
         // Only fetched once, so just need to check if Some
         self.profile.is_some().hash(state);
-        self.current_post_price.map(|f| f.to_bits()).hash(state);
+        self.current_extended_price.map(|f| f.to_bits()).hash(state);
         self.prev_close_price.map(|f| f.to_bits()).hash(state);
         self.reg_mkt_volume.hash(state);
         self.prices.hash(state);
@@ -98,7 +98,7 @@ impl StockState {
             stock_service,
             profile: None,
             current_regular_price: 0.0,
-            current_post_price: None,
+            current_extended_price: None,
             prev_close_price: None,
             reg_mkt_volume: None,
             prices: [vec![], vec![], vec![], vec![], vec![], vec![], vec![]],
@@ -215,11 +215,9 @@ impl StockState {
     pub fn current_price(&self) -> f64 {
         let enable_pre_post = { *ENABLE_PRE_POST.read() };
 
-        if enable_pre_post && self.current_post_price.is_some() {
-            self.current_post_price
-                .unwrap_or(self.current_regular_price)
-        } else {
-            self.current_regular_price
+        match self.current_extended_price {
+            Some(price) if enable_pre_post => price,
+            _ => self.current_regular_price,
         }
     }
 
@@ -228,10 +226,10 @@ impl StockState {
 
         for update in updates {
             match update {
-                service::stock::Update::NewPrice((regular, post, vol)) => {
+                service::stock::Update::NewPrice((regular, extended, vol)) => {
                     self.current_price_error = None;
                     self.current_regular_price = regular;
-                    self.current_post_price = post;
+                    self.current_extended_price = extended;
                     self.reg_mkt_volume = Some(vol);
                 }
                 service::stock::Update::Prices((time_frame, chart_meta, prices)) => {
@@ -239,7 +237,7 @@ impl StockState {
                     self.prices[time_frame.idx()] = prices;
 
                     if time_frame == TimeFrame::Day1 {
-                        self.prev_close_price = Some(chart_meta.chart_previous_close);
+                        self.prev_close_price = Some(session_previous_close(&chart_meta));
                     }
 
                     self.chart_meta = Some(chart_meta);
@@ -468,52 +466,27 @@ impl StockState {
         }
     }
 
-    pub fn pct_change(&self, data: &[Price]) -> f64 {
-        if data.iter().filter(|p| p.close > 0.0).count() == 0 {
-            return 0.0;
-        }
+    /// Price the change is measured against: the previous close on 1D, so
+    /// there's a change even before the session has any prices, otherwise
+    /// the first price of the time frame
+    fn change_baseline(&self, data: &[Price]) -> Option<f64> {
+        let first_price = data.iter().find(|p| p.close > 0.0).map(|p| p.close);
 
-        let baseline = if self.time_frame == TimeFrame::Day1 {
-            if let Some(prev_close) = self.prev_close_price {
-                prev_close
-            } else {
-                data.iter()
-                    .find(|p| p.close > 0.0)
-                    .map(|d| d.close)
-                    .unwrap()
-            }
+        if self.time_frame == TimeFrame::Day1 {
+            self.prev_close_price.or(first_price)
         } else {
-            data.iter()
-                .find(|p| p.close > 0.0)
-                .map(|d| d.close)
-                .unwrap()
-        };
+            first_price
+        }
+    }
 
-        self.current_price() / baseline - 1.0
+    pub fn pct_change(&self, data: &[Price]) -> f64 {
+        self.change_baseline(data)
+            .map_or(0.0, |baseline| self.current_price() / baseline - 1.0)
     }
 
     pub fn dollar_change(&self, data: &[Price]) -> f64 {
-        if data.iter().filter(|p| p.close > 0.0).count() == 0 {
-            return 0.0;
-        }
-
-        let baseline = if self.time_frame == TimeFrame::Day1 {
-            if let Some(prev_close) = self.prev_close_price {
-                prev_close
-            } else {
-                data.iter()
-                    .find(|p| p.close > 0.0)
-                    .map(|d| d.close)
-                    .unwrap()
-            }
-        } else {
-            data.iter()
-                .find(|p| p.close > 0.0)
-                .map(|d| d.close)
-                .unwrap()
-        };
-
-        self.current_price() - baseline
+        self.change_baseline(data)
+            .map_or(0.0, |baseline| self.current_price() - baseline)
     }
 
     /// The most recent error preventing the stock from loading, if any

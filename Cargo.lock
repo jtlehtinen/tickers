@@ -1573,6 +1573,7 @@ dependencies = [
  "ratatui",
  "rclite",
  "serde",
+ "serde_json",
  "serde_yaml",
  "tickrs-api",
  "unicode-width",

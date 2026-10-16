@@ -7,7 +7,7 @@ use itertools::izip;
 use serde::Deserialize;
 use tickrs_api::Interval;
 
-use crate::api::model::ChartData;
+use crate::api::model::{ChartData, ChartMeta};
 use crate::api::Range;
 
 pub const DAY: i64 = 60 * 60 * 24;
@@ -334,6 +334,24 @@ pub fn chart_data_to_prices(mut chart_data: ChartData) -> Vec<Price> {
     .collect()
 }
 
+/// Close of the session before the current one, which 1D changes are
+/// measured against.
+///
+/// Until the current session's regular market opens, Yahoo's chart previous
+/// close is the close before the *last* session, while the last session's close
+/// is still the regular market price.
+pub fn session_previous_close(meta: &ChartMeta) -> f64 {
+    let session_start = meta
+        .current_trading_period
+        .as_ref()
+        .map(|period| period.regular.start);
+
+    match (meta.regular_market_time, session_start) {
+        (Some(time), Some(start)) if time < start => meta.regular_market_price,
+        _ => meta.chart_previous_close,
+    }
+}
+
 pub fn cast_historical_as_price(input: &Price) -> f64 {
     input.close
 }
@@ -383,7 +401,8 @@ fn get_weekday(epoch: i64) -> Weekday {
 mod tests {
     use chrono::{Datelike, NaiveDateTime, Weekday};
 
-    use super::{MarketTimes, DAY};
+    use super::{session_previous_close, MarketTimes, DAY};
+    use crate::api::model::ChartMeta;
 
     const HOUR: i64 = 60 * 60;
 
@@ -492,5 +511,33 @@ mod tests {
                 Weekday::Sat | Weekday::Sun
             ));
         }
+    }
+
+    /// ONDS chart meta on 2026-10-16 before the market opened, after closing at
+    /// 6.35 on 10-15 and 6.14 on 10-14
+    fn onds_meta(regular_market_time: i64) -> ChartMeta {
+        serde_json::from_value(serde_json::json!({
+            "regularMarketPrice": 6.35,
+            "regularMarketTime": regular_market_time,
+            "chartPreviousClose": 6.14,
+            "currentTradingPeriod": {
+                "pre": {"start": 1_792_137_600, "end": 1_792_157_400},
+                "regular": {"start": 1_792_157_400, "end": 1_792_180_800},
+                "post": {"start": 1_792_180_800, "end": 1_792_195_200}
+            }
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn previous_close_before_open_is_last_sessions_close() {
+        // 10-15 20:00 UTC, the last session's close
+        assert_eq!(session_previous_close(&onds_meta(1_792_094_400)), 6.35);
+    }
+
+    #[test]
+    fn previous_close_after_open_is_chart_previous_close() {
+        // 10-16 14:00 UTC, the session is open
+        assert_eq!(session_previous_close(&onds_meta(1_792_159_200)), 6.14);
     }
 }

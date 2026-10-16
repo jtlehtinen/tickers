@@ -44,6 +44,7 @@ pub struct ChartData {
 pub struct ChartMeta {
     pub instrument_type: Option<String>,
     pub regular_market_price: f64,
+    pub regular_market_time: Option<i64>,
     pub chart_previous_close: f64,
     pub current_trading_period: Option<ChartCurrentTradingPeriod>,
     /// Offset of the exchange's timezone from UTC, in seconds
@@ -54,6 +55,7 @@ impl Hash for ChartMeta {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.instrument_type.hash(state);
         self.regular_market_price.to_bits().hash(state);
+        self.regular_market_time.hash(state);
         self.chart_previous_close.to_bits().hash(state);
         self.current_trading_period.hash(state);
         self.gmtoffset.hash(state);
@@ -155,8 +157,14 @@ pub struct CompanyPrice {
     pub short_name: String,
     pub long_name: Option<String>,
     pub regular_market_price: CompanyMarketPrice,
+    pub regular_market_time: Option<i64>,
     pub regular_market_previous_close: CompanyMarketPrice,
+    #[serde(default)]
+    pub pre_market_price: OptionalCompanyMarketPrice,
+    pub pre_market_time: Option<i64>,
+    #[serde(default)]
     pub post_market_price: OptionalCompanyMarketPrice,
+    pub post_market_time: Option<i64>,
     pub regular_market_volume: OptionalCompanyMarketPrice,
     pub currency: Option<String>,
 }
@@ -169,7 +177,7 @@ pub struct CompanyMarketPrice {
     pub fmt: String,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct OptionalCompanyMarketPrice {
     #[serde(rename = "raw")]
