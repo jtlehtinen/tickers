@@ -49,8 +49,13 @@ impl CachableWidget<StockState> for StockSummaryWidget {
 
         let title = stock::get_chart_title(&area, state, true);
 
-        Block::default()
-            .title(Span::styled(title, style().fg(THEME.text_normal())))
+        let mut block =
+            Block::default().title(Span::styled(title, style().fg(THEME.text_normal())));
+        if let Some(stale) = stock::stale_title(state) {
+            block = block.title(stale);
+        }
+
+        block
             .borders(Borders::TOP)
             .border_style(style().fg(THEME.border_secondary()))
             .render(area, buf);

@@ -1,9 +1,12 @@
 use std::hash::{Hash, Hasher};
+use std::time::{Duration, Instant};
 
+use chrono::{DateTime, Local};
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
+use ratatui::widgets::block::Title;
 use ratatui::widgets::{Block, Borders, Paragraph, StatefulWidget, Tabs, Widget, Wrap};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
@@ -21,7 +24,7 @@ use crate::task::{MarketState, Offer};
 use crate::theme::style;
 use crate::{
     DEFAULT_TIMESTAMPS, ENABLE_PRE_POST, HIDE_PREV_CLOSE, HIDE_TOGGLE, OPTS, SHOW_VOLUMES,
-    SHOW_X_LABELS, THEME, TIME_FRAME, TRUNC_PRE,
+    SHOW_X_LABELS, THEME, TIME_FRAME, TRUNC_PRE, UPDATE_INTERVAL,
 };
 
 const NUM_LOADING_TICKS: usize = 8;
@@ -56,6 +59,8 @@ pub struct StockState {
     pub cache_state: CacheState,
     pub current_price_error: Option<String>,
     pub prices_error: Option<String>,
+    /// When the last quote was received
+    pub quote_received: Option<(Instant, DateTime<Local>)>,
 }
 
 impl Hash for StockState {
@@ -83,6 +88,7 @@ impl Hash for StockState {
         self.chart_meta.hash(state);
         self.current_price_error.hash(state);
         self.prices_error.hash(state);
+        self.stale_since().hash(state);
 
         if let Some(chart_state) = self.chart_state.as_ref() {
             chart_state.hash(state);
@@ -136,6 +142,7 @@ impl StockState {
             current_price_error: None,
             prices_error: None,
             chart_state: None,
+            quote_received: None,
         }
     }
 
@@ -246,6 +253,7 @@ impl StockState {
         for update in updates {
             match update {
                 service::stock::Update::NewPrice(quote) => {
+                    self.quote_received = Some((Instant::now(), Local::now()));
                     self.current_price_error = None;
                     self.current_regular_price = quote.regular_price;
                     self.current_extended_price = quote.extended_price;
@@ -526,6 +534,14 @@ impl StockState {
         }
     }
 
+    /// Local time of the last quote, if no quote has been received since for
+    /// too long, e.g. because Yahoo can't be reached
+    pub fn stale_since(&self) -> Option<DateTime<Local>> {
+        let (received, time) = self.quote_received?;
+
+        (received.elapsed() >= stale_after(*UPDATE_INTERVAL)).then_some(time)
+    }
+
     /// Today's change, whatever the time frame
     pub fn day_pct_change(&self) -> Option<f64> {
         let baseline = self.day_change_baseline.filter(|price| *price > 0.0)?;
@@ -618,7 +634,11 @@ impl CachableWidget<StockState> for StockWidget {
 
         // Draw widget block
         {
-            block::new(&title).render(area, buf);
+            let mut block = block::new(&title);
+            if let Some(stale) = stale_title(state) {
+                block = block.title(stale);
+            }
+            block.render(area, buf);
             area = add_padding(area, 1, PaddingDirection::All);
             area = add_padding(area, 1, PaddingDirection::Left);
             area = add_padding(area, 1, PaddingDirection::Right);
@@ -1070,14 +1090,17 @@ pub fn get_chart_title(
         None => state.symbol.clone(),
     };
 
-    // Take the loading indicator into account for the truncation calculation
+    // Take the loading indicator and stale label into account for the truncation
+    // calculation
     let loading_indicator_overhead = !state.loaded() as usize * 2;
+    let stale_overhead = stale_label(state).map_or(0, |label| label.width() + 1);
     // Summary has no outer block so its only our title padding of 2, otherwise
     // we must add the outer block padding of 2 as well
     let padding = if summary { 2 } else { 4 };
 
     // Constraint the title length to the screen area less padding & dots if it is truncated
-    let max_width = (area.width as usize).saturating_sub(padding + loading_indicator_overhead);
+    let max_width =
+        (area.width as usize).saturating_sub(padding + loading_indicator_overhead + stale_overhead);
     title = truncate_title(&title, max_width);
 
     // Add padding and the loading indicator
@@ -1087,6 +1110,26 @@ pub fn get_chart_title(
     };
 
     title
+}
+
+/// How long without a new quote before it's stale. Longer than the background
+/// update interval, so switching to a tab doesn't flash it.
+fn stale_after(update_interval: u64) -> Duration {
+    Duration::from_secs(update_interval.saturating_mul(3).max(20))
+}
+
+/// Label of a stale quote, e.g. " No updates since 10:32:05 "
+fn stale_label(state: &StockState) -> Option<String> {
+    let since = state.stale_since()?;
+
+    Some(format!(" No updates since {} ", since.format("%H:%M:%S")))
+}
+
+/// Right aligned block title marking a stale quote
+pub fn stale_title<'a>(state: &StockState) -> Option<Title<'a>> {
+    let label = stale_label(state)?;
+
+    Some(Title::from(Span::styled(label, style().fg(THEME.loss()))).alignment(Alignment::Right))
 }
 
 /// Truncates `title` to `max_width` display columns, ending it with an elipsis
@@ -1246,7 +1289,9 @@ fn offers_line<'a>(
 mod tests {
     use unicode_width::UnicodeWidthStr;
 
-    use super::{nasdaq_asset_class, spread, truncate_title};
+    use std::time::Duration;
+
+    use super::{nasdaq_asset_class, spread, stale_after, truncate_title};
     use crate::api::AssetClass;
 
     #[test]
@@ -1329,5 +1374,16 @@ mod tests {
     #[test]
     fn spread_without_prices() {
         assert_eq!(spread(0.0, 0.0), (0.0, 0.0));
+    }
+
+    #[test]
+    fn quotes_are_stale_after_20_seconds() {
+        assert_eq!(stale_after(1), Duration::from_secs(20));
+    }
+
+    #[test]
+    fn quotes_are_stale_after_3_slow_updates() {
+        assert_eq!(stale_after(10), Duration::from_secs(30));
+        assert_eq!(stale_after(u64::MAX), Duration::from_secs(u64::MAX));
     }
 }
