@@ -29,7 +29,7 @@ impl AsyncTask for Prices {
         (self.symbol.clone(), self.time_frame)
     }
 
-    fn task<'a>(input: Arc<Self::Input>) -> BoxFuture<'a, Option<Self::Response>> {
+    fn task<'a>(input: Arc<Self::Input>) -> BoxFuture<'a, Result<Self::Response>> {
         Box::pin(async move {
             let symbol = &input.0;
             let time_frame = input.1;
@@ -38,18 +38,15 @@ impl AsyncTask for Prices {
 
             let include_pre_post = time_frame == TimeFrame::Day1;
 
-            if let Ok(response) = crate::CLIENT
+            let response = crate::CLIENT
                 .get_chart_data(symbol, interval, time_frame.as_range(), include_pre_post)
-                .await
-            {
-                Some((
-                    time_frame,
-                    response.meta.clone(),
-                    chart_data_to_prices(response),
-                ))
-            } else {
-                None
-            }
+                .await?;
+
+            Ok((
+                time_frame,
+                response.meta.clone(),
+                chart_data_to_prices(response),
+            ))
         })
     }
 }

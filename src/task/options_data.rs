@@ -30,7 +30,7 @@ impl AsyncTask for OptionsData {
         (self.symbol.clone(), self.date)
     }
 
-    fn task<'a>(input: Arc<Self::Input>) -> BoxFuture<'a, Option<Self::Response>> {
+    fn task<'a>(input: Arc<Self::Input>) -> BoxFuture<'a, Result<Self::Response>> {
         Box::pin(async move {
             let symbol = &input.0;
             let date = input.1;
@@ -38,7 +38,6 @@ impl AsyncTask for OptionsData {
             crate::CLIENT
                 .get_options_for_expiration_date(symbol, date)
                 .await
-                .ok()
         })
     }
 }

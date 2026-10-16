@@ -2,7 +2,6 @@ use async_std::sync::Arc;
 use futures::future::BoxFuture;
 
 use super::*;
-use crate::YAHOO_CRUMB;
 
 /// Returns the current price, only if it has changed
 pub struct CurrentPrice {
@@ -27,25 +26,21 @@ impl AsyncTask for CurrentPrice {
         self.symbol.clone()
     }
 
-    fn task<'a>(input: Arc<Self::Input>) -> BoxFuture<'a, Option<Self::Response>> {
+    fn task<'a>(input: Arc<Self::Input>) -> BoxFuture<'a, Result<Self::Response>> {
         Box::pin(async move {
             let symbol = input.as_ref();
 
-            let crumb = YAHOO_CRUMB.read().await.clone();
+            let crumb = crumb().await?;
 
-            if let Some(crumb) = crumb {
-                if let Ok(response) = crate::CLIENT.get_company_data(symbol, crumb).await {
-                    let regular_price = response.price.regular_market_price.price;
+            let response = crate::CLIENT.get_company_data(symbol, crumb).await?;
 
-                    let post_price = response.price.post_market_price.price;
+            let regular_price = response.price.regular_market_price.price;
 
-                    let volume = response.price.regular_market_volume.fmt.unwrap_or_default();
+            let post_price = response.price.post_market_price.price;
 
-                    return Some((regular_price, post_price, volume));
-                }
-            }
+            let volume = response.price.regular_market_volume.fmt.unwrap_or_default();
 
-            None
+            Ok((regular_price, post_price, volume))
         })
     }
 }

@@ -44,6 +44,7 @@ impl Service for OptionsService {
             .expiration_dates_handle
             .response()
             .try_iter()
+            .filter_map(Result::ok)
             .map(Update::ExpirationDates);
         updates.extend(expiration_dates_updates);
 
@@ -51,6 +52,7 @@ impl Service for OptionsService {
             let options_data_updates = options_data_handle
                 .response()
                 .try_iter()
+                .filter_map(Result::ok)
                 .map(Update::OptionsData);
             updates.extend(options_data_updates);
         }

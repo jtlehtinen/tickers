@@ -21,7 +21,11 @@ impl Service for DefaultTimestampService {
     type Update = HashMap<TimeFrame, Vec<i64>>;
 
     fn updates(&self) -> Vec<Self::Update> {
-        self.handle.response().try_iter().collect()
+        self.handle
+            .response()
+            .try_iter()
+            .filter_map(Result::ok)
+            .collect()
     }
 
     fn pause(&self) {

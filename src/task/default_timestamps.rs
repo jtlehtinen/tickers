@@ -26,7 +26,7 @@ impl AsyncTask for DefaultTimestamps {
 
     fn input(&self) -> Self::Input {}
 
-    fn task<'a>(_input: Arc<Self::Input>) -> BoxFuture<'a, Option<Self::Response>> {
+    fn task<'a>(_input: Arc<Self::Input>) -> BoxFuture<'a, Result<Self::Response>> {
         Box::pin(async move {
             let symbol = "SPY";
 
@@ -34,17 +34,31 @@ impl AsyncTask for DefaultTimestamps {
                 let interval = timeframe.api_interval();
                 let range = timeframe.as_range();
 
-                if let Ok(chart) = crate::CLIENT
+                crate::CLIENT
                     .get_chart_data(symbol, interval, range, false)
                     .await
-                {
-                    Some((*timeframe, chart.timestamp))
-                } else {
-                    None
-                }
+                    .map(|chart| (*timeframe, chart.timestamp))
             });
 
-            Some(join_all(tasks).await.into_iter().flatten().collect())
+            let mut timestamps = HashMap::new();
+            let mut first_error = None;
+
+            for result in join_all(tasks).await {
+                match result {
+                    Ok((timeframe, timestamp)) => {
+                        timestamps.insert(timeframe, timestamp);
+                    }
+                    Err(e) => {
+                        first_error.get_or_insert(e);
+                    }
+                }
+            }
+
+            // Partial results are still useful, only fail if every request failed
+            match first_error {
+                Some(e) if timestamps.is_empty() => Err(e),
+                _ => Ok(timestamps),
+            }
         })
     }
 }

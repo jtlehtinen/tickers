@@ -54,16 +54,23 @@ impl Service for StockService {
             .current_price_handle
             .response()
             .try_iter()
+            .filter_map(Result::ok)
             .map(Update::NewPrice);
         updates.extend(current_price_updates);
 
-        let prices_updates = self.prices_handle.response().try_iter().map(Update::Prices);
+        let prices_updates = self
+            .prices_handle
+            .response()
+            .try_iter()
+            .filter_map(Result::ok)
+            .map(Update::Prices);
         updates.extend(prices_updates);
 
         let company_updates = self
             .company_handle
             .response()
             .try_iter()
+            .filter_map(Result::ok)
             .map(Box::new)
             .map(Update::CompanyData);
         updates.extend(company_updates);
