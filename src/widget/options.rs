@@ -330,8 +330,10 @@ impl CachableWidget<OptionsState> for OptionsWidget {
                 .exp_dates
                 .iter()
                 .map(|d| {
-                    let date = NaiveDateTime::from_timestamp_opt(*d, 0).unwrap().date();
-                    ListItem::new(Span::styled(date.format("%b-%d-%y").to_string(), style()))
+                    let date = NaiveDateTime::from_timestamp_opt(*d, 0)
+                        .map(|date| date.format("%b-%d-%y").to_string())
+                        .unwrap_or_default();
+                    ListItem::new(Span::styled(date, style()))
                 })
                 .collect::<Vec<_>>();
 

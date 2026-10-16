@@ -189,7 +189,10 @@ impl TimeFrame {
     }
 
     pub fn format_time(&self, timestamp: i64) -> String {
-        let utc_date = Utc.timestamp_opt(timestamp, 0).unwrap();
+        // Timestamps come from the API, don't trust them to be in range
+        let Some(utc_date) = Utc.timestamp_opt(timestamp, 0).single() else {
+            return String::new();
+        };
         let local_date = utc_date.with_timezone(&Local);
 
         let fmt = match self {
