@@ -3,70 +3,66 @@ use ratatui::layout::Rect;
 use ratatui::symbols::bar;
 use ratatui::widgets::{BarChart, Block, Borders, StatefulWidget, Widget};
 
-use super::resample;
-use crate::common::{Price, TimeFrame};
+use super::x_axis::{plot_columns, XAxis};
+use crate::common::Price;
 use crate::theme::style;
 use crate::widget::StockState;
 use crate::THEME;
 
 pub struct VolumeBarChart<'a> {
     pub data: &'a [Price],
-    pub loaded: bool,
-    pub show_x_labels: bool,
+    pub x_axis: &'a XAxis,
 }
 
 impl StatefulWidget for VolumeBarChart<'_> {
     type State = StockState;
 
-    fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
+    fn render(self, area: Rect, buf: &mut Buffer, _state: &mut Self::State) {
         let mut volume_chunks = area;
         volume_chunks.height += 1;
 
-        let x_offset = if !self.loaded {
-            8
-        } else if self.show_x_labels {
-            match state.time_frame {
-                TimeFrame::Day1 => 9,
-                TimeFrame::Week1 => 12,
-                _ => 11,
-            }
-        } else {
-            9
-        };
-        volume_chunks.x += x_offset;
-        volume_chunks.width = volume_chunks.width.saturating_sub(x_offset + 1);
+        // Same plot area as the price chart above, so bars line up with prices
+        let (plot_x, plot_width) = plot_columns(volume_chunks);
 
-        let width = volume_chunks.width;
-        let num_bars = width as usize;
-
-        let vol_count = self.data.len();
-
-        if vol_count > 0 {
-            let volumes = resample(vol_count, num_bars, vol_count)
-                .map(|bucket| {
-                    let sum = bucket
-                        .map(|(idx, count)| self.data[idx].volume * count as u64)
-                        .sum::<u64>();
-
-                    ("", sum / vol_count as u64)
-                })
-                .collect::<Vec<_>>();
-
-            volume_chunks.x = volume_chunks.x.saturating_sub(1);
-
-            Block::default()
-                .borders(Borders::LEFT)
-                .border_style(style().fg(THEME.border_axis()))
-                .render(volume_chunks, buf);
-
-            volume_chunks.x += 1;
-
-            BarChart::default()
-                .bar_gap(0)
-                .bar_set(bar::NINE_LEVELS)
-                .style(style().fg(THEME.gray()))
-                .data(&volumes)
-                .render(volume_chunks, buf);
+        if self.data.is_empty() || plot_width == 0 {
+            return;
         }
+
+        // One bar per column, at the position of its prices on the x axis
+        let volumes = self.data.iter().map(|p| p.volume).collect::<Vec<_>>();
+        let bars = self
+            .x_axis
+            .resample_columns(&volumes, plot_width)
+            .into_iter()
+            .map(|volume| ("", volume))
+            .collect::<Vec<_>>();
+
+        // y axis line
+        Block::default()
+            .borders(Borders::LEFT)
+            .border_style(style().fg(THEME.border_axis()))
+            .render(
+                Rect {
+                    x: plot_x - 1,
+                    width: 1,
+                    ..volume_chunks
+                },
+                buf,
+            );
+
+        BarChart::default()
+            .bar_width(1)
+            .bar_gap(0)
+            .bar_set(bar::NINE_LEVELS)
+            .style(style().fg(THEME.gray()))
+            .data(&bars)
+            .render(
+                Rect {
+                    x: plot_x,
+                    width: plot_width,
+                    ..volume_chunks
+                },
+                buf,
+            );
     }
 }

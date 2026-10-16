@@ -1,12 +1,12 @@
 use std::hash::{Hash, Hasher};
 
 use ratatui::buffer::Buffer;
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::text::Span;
+use ratatui::layout::Rect;
 use ratatui::widgets::canvas::{Canvas, Line};
 use ratatui::widgets::{Block, Borders, StatefulWidget, Widget};
 use serde::Deserialize;
 
+use super::x_axis::{kagi_ticks, render_ticks, ChartAreas};
 use crate::common::{Price, TimeFrame};
 use crate::draw::{add_padding, PaddingDirection};
 use crate::theme::style;
@@ -341,43 +341,9 @@ impl StatefulWidget for PricesKagiChart<'_> {
             area = add_padding(area, 1, PaddingDirection::Top);
         }
 
-        // x_layout[0] - chart + y labels
-        // x_layout[1] - (x labels)
-        let x_layout: Vec<Rect> = Layout::default()
-            .constraints(if self.show_x_labels {
-                &[Constraint::Min(0), Constraint::Length(1)][..]
-            } else {
-                &[Constraint::Min(0)][..]
-            })
-            .split(area)
-            .to_vec();
+        let areas = ChartAreas::new(area, self.show_x_labels);
 
-        // layout[0] - Y lables
-        // layout[1] - chart
-        let mut layout: Vec<Rect> = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Length(if !self.loaded {
-                    8
-                } else if self.show_x_labels {
-                    match state.time_frame {
-                        TimeFrame::Day1 => 9,
-                        TimeFrame::Week1 => 12,
-                        _ => 11,
-                    }
-                } else {
-                    9
-                }),
-                Constraint::Min(0),
-            ])
-            .split(x_layout[0])
-            .to_vec();
-
-        // Fix for border render
-        layout[1].x = layout[1].x.saturating_sub(1);
-        layout[1].width += 1;
-
-        let width = layout[1].width - 1;
+        let width = areas.plot.width;
         let num_trends_can_render = width as f64 / 1.5;
         let num_trends = kagi_trends.len() as f64;
         let max_offset = if num_trends > num_trends_can_render {
@@ -400,52 +366,23 @@ impl StatefulWidget for PricesKagiChart<'_> {
             max_offset
         };
 
-        let (min, max) = self.min_max(
-            &kagi_trends[offset..offset + num_trends_can_render.min(num_trends).floor() as usize],
-            state.time_frame,
-            state.prev_close_price,
-        );
+        let visible_trends =
+            &kagi_trends[offset..offset + num_trends_can_render.min(num_trends).floor() as usize];
 
-        // Draw x labels
-        if self.show_x_labels && self.loaded {
-            // Plot labels on
-            let mut x_area = x_layout[1];
-            x_area.x = layout[1].x + 1;
-            x_area.width = layout[1].width - 1;
+        let (min, max) = self.min_max(visible_trends, state.time_frame, state.prev_close_price);
 
-            // Fix for y label render
-            layout[0] = add_padding(layout[0], 1, PaddingDirection::Bottom);
-
-            let labels = x_labels(
-                x_area.width + x_area.left(),
-                &kagi_trends
-                    [offset..offset + num_trends_can_render.min(num_trends).floor() as usize],
-                state.time_frame,
-            );
-            let total_width = labels.iter().map(Span::width).sum::<usize>() as u16;
-            let labels_len = labels.len() as u16;
-            if total_width <= (x_area.width + x_area.x) && labels_len >= 1 {
-                for (i, label) in labels.iter().enumerate() {
-                    buf.set_span(
-                        x_area.left() + i as u16 * (x_area.width - 1) / (labels_len.max(2) - 1)
-                            - label.width() as u16,
-                        x_area.top(),
-                        label,
-                        label.width() as u16,
-                    );
-                }
-            }
-        }
+        let first_direction = kagi_trends.first().map(|t| t.direction);
+        let time_frame = state.time_frame;
 
         // Draw y labels
         if self.loaded && self.show_y_labels {
-            let y_area = layout[0];
+            let y_area = areas.y_labels;
 
             let labels = state.y_labels(min, max);
             let labels_len = labels.len() as u16;
             for (i, label) in labels.iter().enumerate() {
-                let dy = i as u16 * (y_area.height - 1) / (labels_len - 1);
-                if dy < y_area.bottom() {
+                let dy = i as u16 * (y_area.height.saturating_sub(1)) / (labels_len - 1);
+                if dy < y_area.height {
                     buf.set_span(
                         y_area.left(),
                         y_area.bottom() - 1 - dy,
@@ -489,8 +426,8 @@ impl StatefulWidget for PricesKagiChart<'_> {
 
                     ctx.layer();
 
-                    let mut color = if let Some(first_trend) = kagi_trends.first() {
-                        match first_trend.direction {
+                    let mut color = if let Some(first_direction) = first_direction {
+                        match first_direction {
                             TrendDirection::Up => THEME.profit(),
                             TrendDirection::Down => THEME.loss(),
                         }
@@ -498,11 +435,7 @@ impl StatefulWidget for PricesKagiChart<'_> {
                         THEME.profit()
                     };
 
-                    for (idx, trend) in kagi_trends
-                        [offset..offset + num_trends_can_render.min(num_trends).floor() as usize]
-                        .iter()
-                        .enumerate()
-                    {
+                    for (idx, trend) in visible_trends.iter().enumerate() {
                         let start = choose_price(
                             &trend.first_price,
                             price_option,
@@ -578,7 +511,7 @@ impl StatefulWidget for PricesKagiChart<'_> {
                         }
                     }
                 })
-                .render(layout[1], buf);
+                .render(areas.chart, buf);
         } else {
             Block::default()
                 .borders(if self.show_x_labels {
@@ -587,46 +520,22 @@ impl StatefulWidget for PricesKagiChart<'_> {
                     Borders::LEFT
                 })
                 .border_style(style().fg(THEME.border_axis()))
-                .render(layout[1], buf);
+                .render(areas.chart, buf);
+        }
+
+        // Draw x labels, after the chart so tick marks go on top of its axis line.
+        // Each trend's vertical line is drawn at `idx * 3 + 2`.
+        if let (Some(x_labels), true) = (areas.x_labels, self.loaded) {
+            let dates = visible_trends
+                .iter()
+                .map(|t| t.first_price.date)
+                .collect::<Vec<_>>();
+            let fractions = (0..visible_trends.len())
+                .map(|idx| (idx as f64 * 3.0 + 2.0) / chart_width)
+                .collect::<Vec<_>>();
+
+            let ticks = kagi_ticks(&dates, &fractions, offset, time_frame).select(width);
+            render_ticks(buf, areas.plot, x_labels, &ticks);
         }
     }
-}
-
-fn x_labels(width: u16, trends: &'_ [Trend], time_frame: TimeFrame) -> Vec<Span<'_>> {
-    let mut labels = vec![];
-
-    let trends = trends
-        .iter()
-        .map(|t| t.first_price.date)
-        .collect::<Vec<_>>();
-
-    if trends.is_empty() {
-        return labels;
-    }
-
-    let label_len = trends
-        .first()
-        .map_or(0, |d| time_frame.format_time(*d).len())
-        + 5;
-
-    let num_labels = width as usize / label_len;
-
-    if num_labels == 0 {
-        return labels;
-    }
-
-    for i in 0..num_labels {
-        let idx = i * (trends.len() - 1) / (num_labels.max(2) - 1);
-
-        let timestamp = trends.get(idx).unwrap();
-
-        let label = Span::styled(
-            time_frame.format_time(*timestamp),
-            style().fg(THEME.text_normal()),
-        );
-
-        labels.push(label);
-    }
-
-    labels
 }

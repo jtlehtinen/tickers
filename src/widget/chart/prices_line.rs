@@ -1,12 +1,10 @@
 use ratatui::buffer::Buffer;
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::layout::Rect;
 use ratatui::symbols::Marker;
-use ratatui::text::Span;
 use ratatui::widgets::{Axis, Block, Borders, Chart, Dataset, GraphType, StatefulWidget, Widget};
 
-use crate::common::{
-    cast_as_dataset, cast_historical_as_price, zeros_as_pre, Price, TimeFrame, TradingPeriod,
-};
+use super::x_axis::{render_ticks, ChartAreas, XAxis};
+use crate::common::{cast_historical_as_price, zeros_as_pre, Price, TimeFrame, TradingPeriod};
 use crate::draw::{add_padding, PaddingDirection};
 use crate::theme::style;
 use crate::widget::StockState;
@@ -20,6 +18,7 @@ pub struct PricesLineChart<'a> {
     pub is_profit: bool,
     pub is_summary: bool,
     pub data: &'a [Price],
+    pub x_axis: &'a XAxis,
 }
 
 impl StatefulWidget for PricesLineChart<'_> {
@@ -39,12 +38,15 @@ impl StatefulWidget for PricesLineChart<'_> {
         }
 
         let (min, max) = state.min_max(self.data);
-        let x_bounds = state.x_bounds(self.data);
+        let x_bounds = self.x_axis.bounds();
 
         let mut prices: Vec<_> = self.data.iter().map(cast_historical_as_price).collect();
 
-        prices.pop();
-        prices.push(state.current_price());
+        // The latest price is still forming, use the current price for it. Every
+        // point needs a position on the x axis, so only replace existing prices.
+        if let Some(last) = prices.last_mut() {
+            *last = state.current_price();
+        }
         zeros_as_pre(&mut prices);
 
         // Need more than one price for GraphType::Line to work
@@ -55,6 +57,9 @@ impl StatefulWidget for PricesLineChart<'_> {
         };
 
         let trading_period = state.current_trading_period(self.data);
+
+        // Prices are plotted where their time is on the x axis
+        let to_point = |(idx, price): (usize, &f64)| (self.x_axis.x(idx), *price);
 
         let (reg_prices, pre_prices, post_prices) = if self.loaded {
             let (start_idx, end_idx) = state.regular_start_end_idx(self.data);
@@ -78,7 +83,7 @@ impl StatefulWidget for PricesLineChart<'_> {
                                 true
                             }
                         })
-                        .map(cast_as_dataset)
+                        .map(to_point)
                         .collect::<Vec<(f64, f64)>>(),
                     {
                         let pre_end_idx = if let Some(start_idx) = start_idx {
@@ -93,7 +98,7 @@ impl StatefulWidget for PricesLineChart<'_> {
                                     .iter()
                                     .enumerate()
                                     .filter(|(idx, _)| *idx <= pre_end_idx)
-                                    .map(cast_as_dataset)
+                                    .map(to_point)
                                     .collect::<Vec<(f64, f64)>>(),
                             )
                         } else {
@@ -106,7 +111,7 @@ impl StatefulWidget for PricesLineChart<'_> {
                                 .iter()
                                 .enumerate()
                                 .filter(|(idx, _)| *idx >= post_start_idx)
-                                .map(cast_as_dataset)
+                                .map(to_point)
                                 .collect::<Vec<(f64, f64)>>()
                         })
                     },
@@ -116,7 +121,7 @@ impl StatefulWidget for PricesLineChart<'_> {
                     prices
                         .iter()
                         .enumerate()
-                        .map(cast_as_dataset)
+                        .map(to_point)
                         .collect::<Vec<(f64, f64)>>(),
                     None,
                     None,
@@ -204,76 +209,17 @@ impl StatefulWidget for PricesLineChart<'_> {
             .x_axis(Axis::default().bounds(x_bounds))
             .y_axis(Axis::default().bounds(state.y_bounds(min, max)));
 
-        // x_layout[0] - chart + y labels
-        // x_layout[1] - (x labels)
-        let x_layout: Vec<Rect> = Layout::default()
-            .constraints(if self.show_x_labels {
-                &[Constraint::Min(0), Constraint::Length(1)][..]
-            } else {
-                &[Constraint::Min(0)][..]
-            })
-            .split(area)
-            .to_vec();
-
-        // layout[0] - Y lables
-        // layout[1] - chart
-        let mut layout: Vec<Rect> = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Length(if !self.loaded {
-                    8
-                } else if self.show_x_labels {
-                    match state.time_frame {
-                        TimeFrame::Day1 => 9,
-                        TimeFrame::Week1 => 12,
-                        _ => 11,
-                    }
-                } else {
-                    9
-                }),
-                Constraint::Min(0),
-            ])
-            .split(x_layout[0])
-            .to_vec();
-
-        // Fix for border render
-        layout[1].x = layout[1].x.saturating_sub(1);
-        layout[1].width += 1;
-
-        // Draw x labels
-        if self.show_x_labels && self.loaded {
-            // Fix for y label render
-            layout[0] = add_padding(layout[0], 1, PaddingDirection::Bottom);
-
-            let mut x_area = x_layout[1];
-            x_area.x = layout[1].x + 1;
-            x_area.width = layout[1].width - 1;
-
-            let labels = state.x_labels(area.width, self.data);
-            let total_width = labels.iter().map(Span::width).sum::<usize>() as u16;
-            let labels_len = labels.len() as u16;
-            if total_width < x_area.width && labels_len > 1 {
-                for (i, label) in labels.iter().enumerate() {
-                    buf.set_span(
-                        x_area.left() + i as u16 * (x_area.width - 1) / (labels_len - 1)
-                            - label.width() as u16,
-                        x_area.top(),
-                        label,
-                        label.width() as u16,
-                    );
-                }
-            }
-        }
+        let areas = ChartAreas::new(area, self.show_x_labels);
 
         // Draw y labels
         if self.loaded && self.show_y_labels {
-            let y_area = layout[0];
+            let y_area = areas.y_labels;
 
             let labels = state.y_labels(min, max);
             let labels_len = labels.len() as u16;
             for (i, label) in labels.iter().enumerate() {
-                let dy = i as u16 * (y_area.height - 1) / (labels_len - 1);
-                if dy < y_area.bottom() {
+                let dy = i as u16 * (y_area.height.saturating_sub(1)) / (labels_len - 1);
+                if dy < y_area.height {
                     buf.set_span(
                         y_area.left(),
                         y_area.bottom() - 1 - dy,
@@ -284,6 +230,12 @@ impl StatefulWidget for PricesLineChart<'_> {
             }
         }
 
-        chart.render(layout[1], buf);
+        chart.render(areas.chart, buf);
+
+        // Draw x labels, after the chart so tick marks go on top of its axis line
+        if let (Some(x_labels), true) = (areas.x_labels, self.loaded) {
+            let ticks = self.x_axis.ticks(areas.plot.width);
+            render_ticks(buf, areas.plot, x_labels, &ticks);
+        }
     }
 }

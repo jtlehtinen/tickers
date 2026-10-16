@@ -8,7 +8,7 @@ use ratatui::widgets::{Block, Borders, Paragraph, StatefulWidget, Tabs, Widget, 
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use super::chart::{
-    ChartState, PricesCandlestickChart, PricesKagiChart, PricesLineChart, VolumeBarChart,
+    ChartState, PricesCandlestickChart, PricesKagiChart, PricesLineChart, VolumeBarChart, XAxis,
 };
 use super::chart_configuration::ChartConfigurationState;
 use super::{block, CachableWidget, CacheState, OptionsState};
@@ -307,7 +307,7 @@ impl StockState {
         true
     }
 
-    fn current_trading_start_end(&self) -> (i64, i64) {
+    pub fn current_trading_start_end(&self) -> (i64, i64) {
         let enable_pre_post = { *ENABLE_PRE_POST.read() };
 
         let pre = self
@@ -437,54 +437,6 @@ impl StockState {
             .unwrap_or(0.0);
 
         (high, low)
-    }
-
-    pub fn x_bounds(&self, data: &[Price]) -> [f64; 2] {
-        match self.time_frame {
-            TimeFrame::Day1 => {
-                let (start, end) = self.current_trading_start_end();
-                let num_points = ((end - start) / 60) as f64;
-
-                [0.0, num_points]
-            }
-            _ => [0.0, (data.len() + 1) as f64],
-        }
-    }
-
-    pub fn x_labels(&'_ self, width: u16, prices: &[Price]) -> Vec<Span<'_>> {
-        let mut labels = vec![];
-
-        let dates: Vec<i64> = prices.iter().map(|i| i.date).collect();
-
-        if dates.is_empty() {
-            return labels;
-        }
-
-        let label_len = dates
-            .first()
-            .map_or(0, |d| self.time_frame.format_time(*d).len())
-            + 5;
-
-        let num_labels = width as usize / label_len;
-
-        if num_labels == 0 {
-            return labels;
-        }
-
-        for i in 0..num_labels {
-            let idx = i * (dates.len() - 1) / (num_labels.max(2) - 1);
-
-            let timestamp = dates.get(idx).unwrap();
-
-            let label = Span::styled(
-                self.time_frame.format_time(*timestamp),
-                style().fg(THEME.text_normal()),
-            );
-
-            labels.push(label);
-        }
-
-        labels
     }
 
     pub fn y_bounds(&self, min: f64, max: f64) -> [f64; 2] {
@@ -627,6 +579,7 @@ impl CachableWidget<StockState> for StockWidget {
 
     fn render(self, mut area: Rect, buf: &mut Buffer, state: &mut <Self as StatefulWidget>::State) {
         let data = state.prices().collect::<Vec<_>>();
+        let x_axis = XAxis::new(state, &data);
 
         let pct_change = state.pct_change(&data);
         let dollar_change = state.dollar_change(&data);
@@ -1034,6 +987,7 @@ impl CachableWidget<StockState> for StockWidget {
             ChartType::Line => {
                 PricesLineChart {
                     data: &data,
+                    x_axis: &x_axis,
                     enable_pre_post,
                     is_profit: pct_change >= 0.0,
                     is_summary: false,
@@ -1046,6 +1000,7 @@ impl CachableWidget<StockState> for StockWidget {
             ChartType::Candlestick => {
                 PricesCandlestickChart {
                     data: &data,
+                    x_axis: &x_axis,
                     loaded,
                     show_x_labels,
                     show_y_labels: true,
@@ -1080,8 +1035,7 @@ impl CachableWidget<StockState> for StockWidget {
         if show_volumes {
             VolumeBarChart {
                 data: &data,
-                loaded,
-                show_x_labels,
+                x_axis: &x_axis,
             }
             .render(graph_chunks[1], buf, state);
         }

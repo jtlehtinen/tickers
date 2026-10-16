@@ -4,7 +4,9 @@ use ratatui::style::Modifier;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, StatefulWidget, Widget};
 
-use super::chart::{PricesCandlestickChart, PricesKagiChart, PricesLineChart, VolumeBarChart};
+use super::chart::{
+    PricesCandlestickChart, PricesKagiChart, PricesLineChart, VolumeBarChart, XAxis,
+};
 use super::stock::StockState;
 use super::{CachableWidget, CacheState};
 use crate::common::{format_decimals, ChartType, TimeFrame};
@@ -30,6 +32,7 @@ impl CachableWidget<StockState> for StockSummaryWidget {
 
     fn render(self, mut area: Rect, buf: &mut Buffer, state: &mut <Self as StatefulWidget>::State) {
         let data = state.prices().collect::<Vec<_>>();
+        let x_axis = XAxis::new(state, &data);
 
         let pct_change = state.pct_change(&data);
 
@@ -203,6 +206,7 @@ impl CachableWidget<StockState> for StockSummaryWidget {
             ChartType::Line => {
                 PricesLineChart {
                     data: &data,
+                    x_axis: &x_axis,
                     enable_pre_post,
                     is_profit: pct_change >= 0.0,
                     is_summary: true,
@@ -215,6 +219,7 @@ impl CachableWidget<StockState> for StockSummaryWidget {
             ChartType::Candlestick => {
                 PricesCandlestickChart {
                     data: &data,
+                    x_axis: &x_axis,
                     loaded,
                     show_x_labels: false,
                     show_y_labels: false,
@@ -248,8 +253,7 @@ impl CachableWidget<StockState> for StockSummaryWidget {
         if show_volumes {
             VolumeBarChart {
                 data: &data,
-                loaded,
-                show_x_labels: false,
+                x_axis: &x_axis,
             }
             .render(graph_chunks[1], buf, state);
         }

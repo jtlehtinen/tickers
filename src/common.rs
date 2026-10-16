@@ -2,7 +2,7 @@ use std::hash::{Hash, Hasher};
 use std::str::FromStr;
 use std::time::Duration;
 
-use chrono::{Datelike, Local, NaiveDateTime, TimeZone, Utc, Weekday};
+use chrono::{Datelike, NaiveDateTime, Weekday};
 use itertools::izip;
 use serde::Deserialize;
 use tickrs_api::Interval;
@@ -188,20 +188,13 @@ impl TimeFrame {
         }
     }
 
-    pub fn format_time(&self, timestamp: i64) -> String {
-        // Timestamps come from the API, don't trust them to be in range
-        let Some(utc_date) = Utc.timestamp_opt(timestamp, 0).single() else {
-            return String::new();
-        };
-        let local_date = utc_date.with_timezone(&Local);
-
-        let fmt = match self {
+    /// Format of a point in time on this time frame
+    pub fn time_format(self) -> &'static str {
+        match self {
             TimeFrame::Day1 => "%H:%M",
             TimeFrame::Week1 => "%m-%d %H:%M",
             _ => "%F",
-        };
-
-        local_date.format(fmt).to_string()
+        }
     }
 }
 
@@ -339,10 +332,6 @@ pub fn chart_data_to_prices(mut chart_data: ChartData) -> Vec<Price> {
         date: *t,
     })
     .collect()
-}
-
-pub fn cast_as_dataset(input: (usize, &f64)) -> (f64, f64) {
-    ((input.0 + 1) as f64, *input.1)
 }
 
 pub fn cast_historical_as_price(input: &Price) -> f64 {

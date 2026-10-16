@@ -1,10 +1,9 @@
 use ratatui::buffer::Buffer;
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::text::Span;
+use ratatui::layout::Rect;
 use ratatui::widgets::canvas::{Canvas, Line, Rectangle};
 use ratatui::widgets::{Block, Borders, StatefulWidget, Widget};
 
-use super::resample;
+use super::x_axis::{render_ticks, ChartAreas, XAxis};
 use crate::common::{Price, TimeFrame};
 use crate::draw::{add_padding, PaddingDirection};
 use crate::theme::style;
@@ -25,6 +24,7 @@ pub struct PricesCandlestickChart<'a> {
     pub is_summary: bool,
     pub show_x_labels: bool,
     pub show_y_labels: bool,
+    pub x_axis: &'a XAxis,
 }
 
 impl StatefulWidget for PricesCandlestickChart<'_> {
@@ -43,88 +43,19 @@ impl StatefulWidget for PricesCandlestickChart<'_> {
             area = add_padding(area, 1, PaddingDirection::Top);
         }
 
-        let mut data = self.data.to_vec();
-        data.push(Price {
-            close: state.current_price(),
-            open: state.current_price(),
-            high: state.current_price(),
-            low: state.current_price(),
-            ..Default::default()
-        });
+        let (min, max) = state.min_max(self.data);
 
-        let (min, max) = state.min_max(&data);
-        let x_bounds = state.x_bounds(&data);
-
-        // x_layout[0] - chart + y labels
-        // x_layout[1] - (x labels)
-        let x_layout: Vec<Rect> = Layout::default()
-            .constraints(if self.show_x_labels {
-                &[Constraint::Min(0), Constraint::Length(1)][..]
-            } else {
-                &[Constraint::Min(0)][..]
-            })
-            .split(area)
-            .to_vec();
-
-        // layout[0] - Y lables
-        // layout[1] - chart
-        let mut layout: Vec<Rect> = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Length(if !self.loaded {
-                    8
-                } else if self.show_x_labels {
-                    match state.time_frame {
-                        TimeFrame::Day1 => 9,
-                        TimeFrame::Week1 => 12,
-                        _ => 11,
-                    }
-                } else {
-                    9
-                }),
-                Constraint::Min(0),
-            ])
-            .split(x_layout[0])
-            .to_vec();
-
-        // Fix for border render
-        layout[1].x = layout[1].x.saturating_sub(1);
-        layout[1].width += 1;
-
-        // Draw x labels
-        if self.show_x_labels && self.loaded {
-            // Fix for y label render
-            layout[0] = add_padding(layout[0], 1, PaddingDirection::Bottom);
-
-            let mut x_area = x_layout[1];
-            x_area.x = layout[1].x + 1;
-            x_area.width = layout[1].width - 1;
-
-            let labels = state.x_labels(area.width, self.data);
-            let total_width = labels.iter().map(Span::width).sum::<usize>() as u16;
-            let labels_len = labels.len() as u16;
-            if total_width < x_area.width && labels_len > 1 {
-                for (i, label) in labels.iter().enumerate() {
-                    buf.set_span(
-                        x_area.left() + i as u16 * (x_area.width - 1) / (labels_len - 1)
-                            - label.width() as u16,
-                        x_area.top(),
-                        label,
-                        label.width() as u16,
-                    );
-                }
-            }
-        }
+        let areas = ChartAreas::new(area, self.show_x_labels);
 
         // Draw y labels
         if self.loaded && self.show_y_labels {
-            let y_area = layout[0];
+            let y_area = areas.y_labels;
 
             let labels = state.y_labels(min, max);
             let labels_len = labels.len() as u16;
             for (i, label) in labels.iter().enumerate() {
-                let dy = i as u16 * (y_area.height - 1) / (labels_len - 1);
-                if dy < y_area.bottom() {
+                let dy = i as u16 * (y_area.height.saturating_sub(1)) / (labels_len - 1);
+                if dy < y_area.height {
                     buf.set_span(
                         y_area.left(),
                         y_area.bottom() - 1 - dy,
@@ -135,33 +66,50 @@ impl StatefulWidget for PricesCandlestickChart<'_> {
             }
         }
 
-        let width = layout[1].width - 1;
-        let num_candles = width / 2;
+        // Each candle is 2 columns wide and covers an equal part of the x axis
+        let num_candles = areas.plot.width / 2;
+        let num_slots = self.x_axis.num_slots();
 
-        let candles = resample(data.len(), num_candles as usize, x_bounds[1] as usize)
-            .map(|bucket| {
-                let mut prices = bucket
-                    .map(|(idx, _)| &data[idx])
-                    .filter(|p| p.close.gt(&0.0));
+        let mut candles: Vec<Option<Candle>> = (0..num_candles).map(|_| None).collect();
 
-                let first = prices.next()?;
+        let current_price = state.current_price();
+        let last_idx = self.data.len().saturating_sub(1);
 
-                let mut candle = Candle {
-                    open: first.open,
-                    close: first.close,
-                    high: first.high,
-                    low: first.low,
-                };
+        for (idx, price) in self.data.iter().enumerate() {
+            let slot = self.x_axis.slot(idx);
 
-                for price in prices {
+            if price.close <= 0.0 || !(0.0..num_slots).contains(&slot) {
+                continue;
+            }
+
+            let mut price = *price;
+
+            // The latest price is still forming, use the current price for it
+            if idx == last_idx && current_price > 0.0 {
+                price.close = current_price;
+                price.high = price.high.max(current_price);
+                price.low = price.low.min(current_price);
+            }
+
+            let bucket = ((slot / num_slots) * f64::from(num_candles)) as usize;
+
+            match candles.get_mut(bucket) {
+                Some(Some(candle)) => {
                     candle.close = price.close;
                     candle.high = candle.high.max(price.high);
                     candle.low = candle.low.min(price.low);
                 }
-
-                Some(candle)
-            })
-            .collect::<Vec<_>>();
+                Some(candle @ None) => {
+                    *candle = Some(Candle {
+                        open: price.open,
+                        close: price.close,
+                        high: price.high,
+                        low: price.low,
+                    });
+                }
+                None => {}
+            }
+        }
 
         if self.loaded {
             Canvas::default()
@@ -231,7 +179,7 @@ impl StatefulWidget for PricesCandlestickChart<'_> {
                         }
                     }
                 })
-                .render(layout[1], buf);
+                .render(areas.chart, buf);
         } else {
             Block::default()
                 .borders(if self.show_x_labels {
@@ -240,7 +188,13 @@ impl StatefulWidget for PricesCandlestickChart<'_> {
                     Borders::LEFT
                 })
                 .border_style(style().fg(THEME.border_axis()))
-                .render(layout[1], buf);
+                .render(areas.chart, buf);
+        }
+
+        // Draw x labels, after the chart so tick marks go on top of its axis line
+        if let (Some(x_labels), true) = (areas.x_labels, self.loaded) {
+            let ticks = self.x_axis.ticks(areas.plot.width);
+            render_ticks(buf, areas.plot, x_labels, &ticks);
         }
     }
 }
