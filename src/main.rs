@@ -109,6 +109,7 @@ fn main() {
         tab_quotes_service,
         summary_scroll_state: Default::default(),
         chart_type: starting_chart_type,
+        tab_sort: None,
     }));
 
     let move_app = app.clone();

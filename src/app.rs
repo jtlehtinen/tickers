@@ -1,6 +1,8 @@
+use std::cmp::Ordering;
+
 use crossterm::event::Event;
 
-use crate::common::{ChartType, TimeFrame};
+use crate::common::{ChartType, TabSort, TimeFrame};
 use crate::service::default_timestamps::DefaultTimestampService;
 use crate::service::tab_quotes::TabQuotesService;
 use crate::service::Service;
@@ -30,6 +32,8 @@ pub struct App {
     pub tab_quotes_service: TabQuotesService,
     pub summary_scroll_state: SummaryScrollState,
     pub chart_type: ChartType,
+    /// The sort last applied to the tabs
+    pub tab_sort: Option<TabSort>,
 }
 
 impl App {
@@ -51,6 +55,50 @@ impl App {
                 }
             }
         }
+    }
+
+    /// Sorts the tabs once. They don't follow the changes afterwards, so they
+    /// stay put under <Tab>, and moving them keeps working. Sorting again
+    /// re-applies the last sort if the tabs have moved out of it, and applies
+    /// the next one otherwise
+    pub fn sort_tabs(&mut self) {
+        let sort = match self.tab_sort {
+            Some(sort) if self.tabs_sorted_by(sort) => sort.next(),
+            Some(sort) => sort,
+            None => TabSort::ChangeDesc,
+        };
+
+        let current = self
+            .stocks
+            .get(self.current_tab)
+            .map(|s| s.symbol().to_string());
+
+        self.stocks.sort_by(|a, b| {
+            sort.cmp(
+                (a.symbol(), a.day_pct_change()),
+                (b.symbol(), b.day_pct_change()),
+            )
+        });
+
+        // Stay on the same stock
+        self.current_tab = current
+            .and_then(|symbol| self.stocks.iter().position(|s| s.symbol() == symbol))
+            .unwrap_or(0);
+        self.tab_sort = Some(sort);
+    }
+
+    /// The last applied sort, if the tabs are still in it
+    pub fn current_tab_sort(&self) -> Option<TabSort> {
+        self.tab_sort.filter(|sort| self.tabs_sorted_by(*sort))
+    }
+
+    fn tabs_sorted_by(&self, sort: TabSort) -> bool {
+        self.stocks.windows(2).all(|pair| {
+            sort.cmp(
+                (pair[0].symbol(), pair[0].day_pct_change()),
+                (pair[1].symbol(), pair[1].day_pct_change()),
+            ) != Ordering::Greater
+        })
     }
 
     pub fn time_frame_up(&mut self) {

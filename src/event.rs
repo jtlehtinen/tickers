@@ -93,6 +93,9 @@ fn handle_keys_display_stock(keycode: KeyCode, modifiers: KeyModifiers, app: &mu
         (KeyCode::Char('s'), KeyModifiers::NONE) => {
             app.mode = app::Mode::DisplaySummary;
         }
+        (KeyCode::Char('r'), KeyModifiers::NONE) => {
+            app.sort_tabs();
+        }
         (KeyCode::Char('o'), KeyModifiers::NONE)
             if app.stocks[app.current_tab].toggle_options() =>
         {
@@ -130,6 +133,9 @@ fn handle_keys_display_summary(keycode: KeyCode, app: &mut app::App) {
         }
         KeyCode::Char('s') => {
             app.mode = app::Mode::DisplayStock;
+        }
+        KeyCode::Char('r') => {
+            app.sort_tabs();
         }
         KeyCode::Char('/') => {
             app.previous_mode = app.mode;

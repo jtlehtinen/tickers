@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::hash::{Hash, Hasher};
 use std::str::FromStr;
 use std::time::Duration;
@@ -36,6 +37,53 @@ impl ChartType {
             ChartType::Line => "Line",
             ChartType::Candlestick => "Candle",
             ChartType::Kagi => "Kagi",
+        }
+    }
+}
+
+/// Orders the tabs can be sorted in
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+pub enum TabSort {
+    ChangeDesc,
+    ChangeAsc,
+    Symbol,
+}
+
+impl TabSort {
+    pub fn next(self) -> Self {
+        match self {
+            TabSort::ChangeDesc => TabSort::ChangeAsc,
+            TabSort::ChangeAsc => TabSort::Symbol,
+            TabSort::Symbol => TabSort::ChangeDesc,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TabSort::ChangeDesc => "↓%",
+            TabSort::ChangeAsc => "↑%",
+            TabSort::Symbol => "A-Z",
+        }
+    }
+
+    /// Compares tabs by their symbol and today's change. Tabs without a change
+    /// go last either way, and changes equal at the shown precision are equal,
+    /// so a stable sort keeps their order
+    pub fn cmp(
+        self,
+        (a_symbol, a_pct): (&str, Option<f64>),
+        (b_symbol, b_pct): (&str, Option<f64>),
+    ) -> Ordering {
+        // Hundredths of a percent, as the tabs show
+        let shown = |pct: f64| (pct * 10_000.0).round() as i64;
+
+        match (self, a_pct.map(shown), b_pct.map(shown)) {
+            (TabSort::Symbol, _, _) => a_symbol.cmp(b_symbol),
+            (_, None, None) => Ordering::Equal,
+            (_, None, Some(_)) => Ordering::Greater,
+            (_, Some(_), None) => Ordering::Less,
+            (TabSort::ChangeDesc, Some(a), Some(b)) => b.cmp(&a),
+            (TabSort::ChangeAsc, Some(a), Some(b)) => a.cmp(&b),
         }
     }
 }
@@ -489,7 +537,8 @@ mod tests {
     use chrono::{DateTime, Datelike, Weekday};
 
     use super::{
-        format_money, format_price, format_volume, session_previous_close, MarketTimes, DAY,
+        format_money, format_price, format_volume, session_previous_close, MarketTimes, TabSort,
+        DAY,
     };
     use crate::api::model::ChartMeta;
 
@@ -687,5 +736,33 @@ mod tests {
     #[test]
     fn zero_price_has_cents() {
         assert_eq!(format_price(0.0), "0.00");
+    }
+
+    #[test]
+    fn tab_sort_orders_by_change_with_missing_changes_last() {
+        let tabs = [
+            ("A", Some(0.01)),
+            ("B", None),
+            ("C", Some(-0.02)),
+            ("D", Some(0.03)),
+        ];
+        let sorted = |sort: TabSort| {
+            let mut tabs = tabs.to_vec();
+            tabs.sort_by(|a, b| sort.cmp(*a, *b));
+            tabs.iter().map(|(symbol, _)| *symbol).collect::<String>()
+        };
+
+        assert_eq!(sorted(TabSort::ChangeDesc), "DACB");
+        assert_eq!(sorted(TabSort::ChangeAsc), "CADB");
+        assert_eq!(sorted(TabSort::Symbol), "ABCD");
+    }
+
+    #[test]
+    fn tab_sort_treats_changes_shown_alike_as_equal() {
+        // Both show as 1.23%
+        let (a, b) = (("A", Some(0.01231)), ("B", Some(0.01234)));
+
+        assert_eq!(TabSort::ChangeDesc.cmp(a, b), std::cmp::Ordering::Equal);
+        assert_eq!(TabSort::ChangeAsc.cmp(a, b), std::cmp::Ordering::Equal);
     }
 }

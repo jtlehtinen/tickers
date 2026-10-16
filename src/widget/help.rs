@@ -18,9 +18,10 @@ Add Stock:
 Change Tab:
   - <Tab>: next stock
   - <Shift+Tab>: previous stock
-Reorder Current Tab:
+Reorder Tabs:
   - <Ctrl+Left/h>: move 1 tab up
   - <Ctrl+Right/l>: move 1 tab down
+  - r: sort by change ↓ / ↑ / A-Z
 Change Time Frame:
   - <Right / l>: next time frame
   - <Left / h>: prev time frame
@@ -53,7 +54,7 @@ Toggle Chart Configurations Pane:
 const LEFT_WIDTH: usize = 34;
 const RIGHT_WIDTH: usize = 35;
 pub const HELP_WIDTH: usize = 2 + LEFT_WIDTH + 2 + RIGHT_WIDTH + 2;
-pub const HELP_HEIGHT: usize = 2 + 18 + 1;
+pub const HELP_HEIGHT: usize = 2 + 19 + 1;
 
 #[derive(Copy, Clone)]
 pub struct HelpWidget {}
