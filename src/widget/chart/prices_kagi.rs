@@ -7,6 +7,7 @@ use ratatui::widgets::{Block, Borders, StatefulWidget, Widget};
 use serde::Deserialize;
 
 use super::x_axis::{kagi_ticks, render_ticks, ChartAreas};
+use super::y_axis::render_y_labels;
 use crate::common::{Price, TimeFrame};
 use crate::draw::{add_padding, PaddingDirection};
 use crate::theme::style;
@@ -378,19 +379,7 @@ impl StatefulWidget for PricesKagiChart<'_> {
         if self.loaded && self.show_y_labels {
             let y_area = areas.y_labels;
 
-            let labels = state.y_labels(min, max);
-            let labels_len = labels.len() as u16;
-            for (i, label) in labels.iter().enumerate() {
-                let dy = i as u16 * (y_area.height.saturating_sub(1)) / (labels_len - 1);
-                if dy < y_area.height {
-                    buf.set_span(
-                        y_area.left(),
-                        y_area.bottom() - 1 - dy,
-                        label,
-                        label.width() as u16,
-                    );
-                }
-            }
+            render_y_labels(buf, y_area, state, min, max);
         }
 
         if self.loaded {

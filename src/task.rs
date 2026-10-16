@@ -10,7 +10,7 @@ use parking_lot::Mutex;
 use task::JoinHandle;
 
 pub use self::company::Company;
-pub use self::current_price::{CurrentPrice, Offer, Quote};
+pub use self::current_price::{CurrentPrice, MarketState, Offer, Quote};
 pub use self::default_timestamps::DefaultTimestamps;
 pub use self::options_data::OptionsData;
 pub use self::options_dates::OptionsDates;

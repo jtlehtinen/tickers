@@ -43,6 +43,11 @@ impl AsyncTask for CurrentPrice {
                 volume: response.price.regular_market_volume.fmt.unwrap_or_default(),
                 bid: detail.and_then(|d| Offer::new(d.bid.as_ref(), d.bid_size.as_ref())),
                 ask: detail.and_then(|d| Offer::new(d.ask.as_ref(), d.ask_size.as_ref())),
+                market_state: response
+                    .price
+                    .market_state
+                    .as_deref()
+                    .map(MarketState::from_yahoo),
             })
         })
     }
@@ -56,6 +61,37 @@ pub struct Quote {
     pub volume: String,
     pub bid: Option<Offer>,
     pub ask: Option<Offer>,
+    pub market_state: Option<MarketState>,
+}
+
+/// Trading session the market is in
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MarketState {
+    Pre,
+    Regular,
+    Post,
+    Closed,
+}
+
+impl MarketState {
+    /// Yahoo's PREPRE and POSTPOST are the hours outside of extended trading
+    fn from_yahoo(state: &str) -> MarketState {
+        match state {
+            "PRE" => MarketState::Pre,
+            "REGULAR" => MarketState::Regular,
+            "POST" => MarketState::Post,
+            _ => MarketState::Closed,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            MarketState::Pre => "Pre-market",
+            MarketState::Regular => "Market open",
+            MarketState::Post => "After hours",
+            MarketState::Closed => "Market closed",
+        }
+    }
 }
 
 /// Best bid or ask
@@ -148,6 +184,16 @@ mod tests {
         let json = PRE_MARKET.replace("1792094401", "1792160000");
 
         assert_eq!(extended_hours_price(&price(&json)), None);
+    }
+
+    #[test]
+    fn market_states() {
+        assert_eq!(MarketState::from_yahoo("PRE"), MarketState::Pre);
+        assert_eq!(MarketState::from_yahoo("REGULAR"), MarketState::Regular);
+        assert_eq!(MarketState::from_yahoo("POST"), MarketState::Post);
+        assert_eq!(MarketState::from_yahoo("PREPRE"), MarketState::Closed);
+        assert_eq!(MarketState::from_yahoo("POSTPOST"), MarketState::Closed);
+        assert_eq!(MarketState::from_yahoo("CLOSED"), MarketState::Closed);
     }
 
     #[test]

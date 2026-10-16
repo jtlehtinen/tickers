@@ -9,6 +9,7 @@ pub mod prices_kagi;
 mod prices_line;
 mod volume_bar;
 mod x_axis;
+mod y_axis;
 
 const SCROLL_STEP: usize = 2;
 

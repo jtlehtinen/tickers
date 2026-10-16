@@ -16,7 +16,7 @@ use crate::api::model::{ChartMeta, CompanyData};
 use crate::common::*;
 use crate::draw::{add_padding, PaddingDirection};
 use crate::service::{self, Service};
-use crate::task::Offer;
+use crate::task::{MarketState, Offer};
 use crate::theme::style;
 use crate::{
     DEFAULT_TIMESTAMPS, ENABLE_PRE_POST, HIDE_PREV_CLOSE, HIDE_TOGGLE, OPTS, SHOW_VOLUMES,
@@ -37,6 +37,7 @@ pub struct StockState {
     pub reg_mkt_volume: Option<String>,
     pub bid: Option<Offer>,
     pub ask: Option<Offer>,
+    pub market_state: Option<MarketState>,
     pub prices: [Vec<Price>; 7],
     pub time_frame: TimeFrame,
     pub show_options: bool,
@@ -64,6 +65,7 @@ impl Hash for StockState {
         self.reg_mkt_volume.hash(state);
         self.bid.hash(state);
         self.ask.hash(state);
+        self.market_state.hash(state);
         self.prices.hash(state);
         self.time_frame.hash(state);
         self.show_options.hash(state);
@@ -108,6 +110,7 @@ impl StockState {
             reg_mkt_volume: None,
             bid: None,
             ask: None,
+            market_state: None,
             prices: [vec![], vec![], vec![], vec![], vec![], vec![], vec![]],
             time_frame,
             show_options: false,
@@ -240,6 +243,7 @@ impl StockState {
                     self.reg_mkt_volume = Some(quote.volume);
                     self.bid = quote.bid;
                     self.ask = quote.ask;
+                    self.market_state = quote.market_state;
                 }
                 service::stock::Update::Prices((time_frame, chart_meta, prices)) => {
                     self.prices_error = None;
@@ -448,34 +452,6 @@ impl StockState {
 
     pub fn y_bounds(&self, min: f64, max: f64) -> [f64; 2] {
         [(min), (max)]
-    }
-
-    pub fn y_labels(&'_ self, min: f64, max: f64) -> Vec<Span<'_>> {
-        if self.loaded() {
-            // Same decimals for every label, from the largest label so it
-            // fits, unless all labels are below 1 and need more decimals
-            let decimals = if max.abs() >= 1.0 {
-                price_decimals(max)
-            } else {
-                price_decimals(min)
-            };
-
-            [min, (min + max) / 2.0, max]
-                .into_iter()
-                .map(|value| {
-                    Span::styled(
-                        format!("{:>8.*}", decimals, value),
-                        style().fg(THEME.text_normal()),
-                    )
-                })
-                .collect()
-        } else {
-            vec![
-                Span::raw("       ".to_string()),
-                Span::raw("       ".to_string()),
-                Span::raw("       ".to_string()),
-            ]
-        }
     }
 
     /// Price the change is measured against: the previous close on 1D, so
@@ -717,6 +693,7 @@ impl CachableWidget<StockState> for StockWidget {
                                 THEME.loss()
                             }),
                     ),
+                    market_state_span(state.market_state.filter(|_| loaded)),
                 ]),
                 Line::from(vec![
                     Span::styled("H: ", style()),
@@ -1166,6 +1143,21 @@ fn truncate_title(title: &str, max_width: usize) -> String {
     let fill = " ".repeat(available - trimmed.width());
 
     format!("{trimmed}...{fill}")
+}
+
+/// Which session the current price is from, e.g. "Pre-market"
+fn market_state_span<'a>(market_state: Option<MarketState>) -> Span<'a> {
+    match market_state {
+        Some(market_state) => Span::styled(
+            format!("  {}", market_state.as_str()),
+            style().fg(if market_state == MarketState::Closed {
+                THEME.gray()
+            } else {
+                THEME.text_secondary()
+            }),
+        ),
+        None => Span::raw(""),
+    }
 }
 
 /// Line showing the bid and ask as "Bid: USD 6.33 × 100  Ask: USD 7.51 × 200"

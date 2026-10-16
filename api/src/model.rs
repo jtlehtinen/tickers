@@ -171,6 +171,8 @@ pub struct CompanyPrice {
     pub post_market_time: Option<i64>,
     pub regular_market_volume: OptionalCompanyMarketPrice,
     pub currency: Option<String>,
+    /// PREPRE, PRE, REGULAR, POST, POSTPOST or CLOSED
+    pub market_state: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
