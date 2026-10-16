@@ -9,7 +9,6 @@ use lazy_static::lazy_static;
 use parking_lot::Mutex;
 use task::JoinHandle;
 
-pub use self::company::Company;
 pub use self::current_price::{CurrentPrice, MarketState, Offer, Quote};
 pub use self::default_timestamps::DefaultTimestamps;
 pub use self::nasdaq_quote::{NasdaqData, NasdaqQuote};
@@ -20,7 +19,6 @@ use crate::api::model::CrumbData;
 use crate::api::Unauthorized;
 use crate::{CLIENT, DATA_RECEIVED, UPDATE_INTERVAL};
 
-mod company;
 mod current_price;
 mod default_timestamps;
 mod nasdaq_quote;

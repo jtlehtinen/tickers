@@ -6,9 +6,8 @@ use crate::task::*;
 
 pub struct StockService {
     symbol: String,
-    current_price_handle: AsyncTaskHandle<Quote>,
+    current_price_handle: AsyncTaskHandle<(Quote, CompanyData)>,
     prices_handle: AsyncTaskHandle<(TimeFrame, ChartMeta, Vec<Price>)>,
-    company_handle: AsyncTaskHandle<CompanyData>,
     /// Only for US listings, started once their asset class is known
     nasdaq_handle: Option<AsyncTaskHandle<NasdaqData>>,
 }
@@ -21,14 +20,10 @@ impl StockService {
         let task = Prices::new(symbol.clone(), time_frame);
         let prices_handle = task.connect();
 
-        let task = Company::new(symbol.clone());
-        let company_handle = task.connect();
-
         StockService {
             symbol,
             current_price_handle,
             prices_handle,
-            company_handle,
             nasdaq_handle: None,
         }
     }
@@ -66,12 +61,15 @@ impl Service for StockService {
     fn updates(&self) -> Vec<Self::Update> {
         let mut updates = vec![];
 
-        let current_price_updates = self
-            .current_price_handle
-            .response()
-            .try_iter()
-            .map(|result| result.map_or_else(Update::CurrentPriceError, Update::NewPrice));
-        updates.extend(current_price_updates);
+        for result in self.current_price_handle.response().try_iter() {
+            match result {
+                Ok((quote, company_data)) => {
+                    updates.push(Update::NewPrice(quote));
+                    updates.push(Update::CompanyData(Box::new(company_data)));
+                }
+                Err(error) => updates.push(Update::CurrentPriceError(error)),
+            }
+        }
 
         let prices_updates = self
             .prices_handle
@@ -79,15 +77,6 @@ impl Service for StockService {
             .try_iter()
             .map(|result| result.map_or_else(Update::PricesError, Update::Prices));
         updates.extend(prices_updates);
-
-        let company_updates = self
-            .company_handle
-            .response()
-            .try_iter()
-            .filter_map(Result::ok)
-            .map(Box::new)
-            .map(Update::CompanyData);
-        updates.extend(company_updates);
 
         // Errors keep the last quote, it's refetched soon
         if let Some(handle) = self.nasdaq_handle.as_ref() {
@@ -107,7 +96,6 @@ impl Service for StockService {
     fn pause(&self) {
         self.current_price_handle.background();
         self.prices_handle.pause();
-        self.company_handle.pause();
 
         if let Some(handle) = self.nasdaq_handle.as_ref() {
             handle.pause();
@@ -117,7 +105,6 @@ impl Service for StockService {
     fn resume(&self) {
         self.current_price_handle.resume();
         self.prices_handle.resume();
-        self.company_handle.resume();
 
         if let Some(handle) = self.nasdaq_handle.as_ref() {
             handle.resume();

@@ -2,9 +2,9 @@ use async_std::sync::Arc;
 use futures::future::BoxFuture;
 
 use super::*;
-use crate::api::model::{CompanyPrice, OptionalCompanyMarketPrice};
+use crate::api::model::{CompanyData, CompanyPrice, OptionalCompanyMarketPrice};
 
-/// Returns the current quote, only if it has changed
+/// Returns the current quote, and the company profile from the same response
 pub struct CurrentPrice {
     symbol: String,
 }
@@ -17,7 +17,7 @@ impl CurrentPrice {
 
 impl AsyncTask for CurrentPrice {
     type Input = String;
-    type Response = Quote;
+    type Response = (Quote, CompanyData);
 
     fn update_interval(&self) -> Option<Duration> {
         Some(Duration::from_secs(1))
@@ -37,11 +37,16 @@ impl AsyncTask for CurrentPrice {
 
             let detail = response.summary_detail.as_ref();
 
-            Ok(Quote {
+            let quote = Quote {
                 regular_price: response.price.regular_market_price.price,
                 day_change_baseline: day_change_baseline(&response.price),
                 extended_price: extended_hours_price(&response.price),
-                volume: response.price.regular_market_volume.fmt.unwrap_or_default(),
+                volume: response
+                    .price
+                    .regular_market_volume
+                    .fmt
+                    .clone()
+                    .unwrap_or_default(),
                 bid: detail.and_then(|d| Offer::new(d.bid.as_ref(), d.bid_size.as_ref())),
                 ask: detail.and_then(|d| Offer::new(d.ask.as_ref(), d.ask_size.as_ref())),
                 market_state: response
@@ -49,7 +54,9 @@ impl AsyncTask for CurrentPrice {
                     .market_state
                     .as_deref()
                     .map(MarketState::from_yahoo),
-            })
+            };
+
+            Ok((quote, response))
         })
     }
 }
