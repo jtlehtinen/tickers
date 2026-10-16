@@ -225,6 +225,10 @@ pub struct MarketTimes {
     pub end: i64,
     pub delta: i64,
     pub current: i64,
+    /// Exchange offset from UTC in seconds. Iteration happens in exchange
+    /// local time so sessions don't wrap around midnight and weekends fall
+    /// on the exchange's weekend.
+    pub utc_offset: i64,
 }
 
 impl Price {
@@ -248,12 +252,14 @@ impl Hash for Price {
 }
 
 impl MarketTimes {
-    pub fn new(start: i64, end: i64, delta: i64) -> Self {
+    /// Times are UTC epochs, `utc_offset` is the exchange's offset from UTC
+    pub fn new(start: i64, end: i64, delta: i64, utc_offset: i64) -> Self {
         MarketTimes {
-            start,
-            end,
+            start: start + utc_offset,
+            end: end + utc_offset,
             delta,
-            current: start,
+            current: start + utc_offset,
+            utc_offset,
         }
     }
 }
@@ -285,14 +291,23 @@ impl Iterator for MarketTimes {
         } else {
             // We're post the market closing time
 
-            // Go back to today's market opening time
-            self.current = current - current_time + start_time;
+            // Today's market opening time, which is still ahead of us if the
+            // session wraps around midnight
+            let mut next_open = current - current_time + start_time;
 
-            // Advance one day and skip the weekend
-            self.current += get_next_business_day_delta(self.current);
+            if next_open <= current {
+                next_open += DAY;
+            }
+
+            // Skip the weekend
+            while matches!(get_weekday(next_open), Weekday::Sat | Weekday::Sun) {
+                next_open += DAY;
+            }
+
+            self.current = next_open;
         }
 
-        Some(current)
+        Some(current - self.utc_offset)
     }
 }
 
@@ -366,16 +381,124 @@ pub fn format_decimals(value: f64) -> String {
     }
 }
 
-pub fn get_next_business_day_delta(epoch: i64) -> i64 {
-    DAY * match get_weekday(epoch) {
-        Weekday::Fri => 3,
-        Weekday::Sat => 2,
-        _ => 1,
-    }
-}
-
 fn get_weekday(epoch: i64) -> Weekday {
     NaiveDateTime::from_timestamp_opt(epoch, 0)
         .unwrap_or_default()
         .weekday()
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::{Datelike, NaiveDateTime, Weekday};
+
+    use super::{MarketTimes, DAY};
+
+    const HOUR: i64 = 60 * 60;
+
+    /// Monday 2026-01-05 00:00 UTC
+    const MONDAY: i64 = 1_767_571_200;
+
+    fn weekday(epoch: i64) -> Weekday {
+        NaiveDateTime::from_timestamp_opt(epoch, 0)
+            .unwrap()
+            .weekday()
+    }
+
+    /// The implementation prior to iterating in exchange local time
+    fn legacy_market_times(start: i64, end: i64, delta: i64) -> Vec<i64> {
+        let mut times = vec![];
+        let mut current = start;
+
+        loop {
+            let start = start - start % delta;
+            let end = end - end % delta;
+            let now = current - current % delta;
+
+            if now >= end {
+                return times;
+            }
+
+            let (start_time, end_time, now_time) = (start % DAY, end % DAY, now % DAY);
+
+            if (start_time < end_time && (start_time <= now_time && now_time < end_time))
+                || (start_time > end_time && (now_time < end_time || start_time <= now_time))
+            {
+                current = now + delta;
+            } else {
+                current = now - now_time + start_time;
+                current += DAY
+                    * match weekday(current) {
+                        Weekday::Fri => 3,
+                        Weekday::Sat => 2,
+                        _ => 1,
+                    };
+            }
+
+            times.push(now);
+        }
+    }
+
+    #[test]
+    fn market_times_matches_legacy_for_us_hours() {
+        // NYSE 09:30 - 16:00, in both EDT and EST
+        for utc_offset in [-4 * HOUR, -5 * HOUR] {
+            let start = MONDAY + 9 * HOUR + 30 * 60 - utc_offset;
+            let end = start + 14 * DAY + 6 * HOUR + 30 * 60;
+
+            for delta in [5 * 60, 30 * 60, HOUR] {
+                let times = MarketTimes::new(start, end, delta, utc_offset).collect::<Vec<_>>();
+
+                assert!(!times.is_empty());
+                assert_eq!(times, legacy_market_times(start, end, delta));
+            }
+        }
+    }
+
+    #[test]
+    fn market_times_handles_sessions_wrapping_utc_midnight() {
+        // ASX during AEDT (UTC+11): 10:00 - 16:00 local, 23:00 - 05:00 UTC
+        let utc_offset = 11 * HOUR;
+        let start = MONDAY - HOUR; // Sunday 23:00 UTC, Monday 10:00 local
+        let end = start + 7 * DAY + 6 * HOUR;
+
+        let times = MarketTimes::new(start, end, HOUR, utc_offset).collect::<Vec<_>>();
+
+        let mut session_days = times
+            .iter()
+            .map(|t| (t - start).div_euclid(DAY))
+            .collect::<Vec<_>>();
+        session_days.dedup();
+
+        // Every weekday session, previously every other session was skipped
+        assert_eq!(session_days, vec![0, 1, 2, 3, 4, 7]);
+
+        // Hourly steps from the 10:00 open through the 16:00 close (local), the
+        // last session is cut off by `end`
+        assert_eq!(times.len(), 5 * 7 + 6);
+        for time in times {
+            let local_hour = (time + utc_offset).rem_euclid(DAY) / HOUR;
+            assert!((10..=16).contains(&local_hour), "{}", local_hour);
+            assert!(!matches!(
+                weekday(time + utc_offset),
+                Weekday::Sat | Weekday::Sun
+            ));
+        }
+    }
+
+    #[test]
+    fn market_times_steps_daily_over_business_days() {
+        let utc_offset = -5 * HOUR;
+        let start = MONDAY + 14 * HOUR;
+        let end = start + 14 * DAY;
+
+        let times = MarketTimes::new(start, end, DAY, utc_offset).collect::<Vec<_>>();
+
+        assert_eq!(times.len(), 10);
+        for time in times {
+            assert!(!matches!(
+                weekday(time + utc_offset),
+                Weekday::Sat | Weekday::Sun
+            ));
+        }
+    }
 }

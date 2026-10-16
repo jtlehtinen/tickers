@@ -46,6 +46,8 @@ pub struct ChartMeta {
     pub regular_market_price: f64,
     pub chart_previous_close: f64,
     pub current_trading_period: Option<ChartCurrentTradingPeriod>,
+    /// Offset of the exchange's timezone from UTC, in seconds
+    pub gmtoffset: Option<i64>,
 }
 
 impl Hash for ChartMeta {
@@ -54,6 +56,7 @@ impl Hash for ChartMeta {
         self.regular_market_price.to_bits().hash(state);
         self.chart_previous_close.to_bits().hash(state);
         self.current_trading_period.hash(state);
+        self.gmtoffset.hash(state);
     }
 }
 

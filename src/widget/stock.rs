@@ -190,8 +190,14 @@ impl StockState {
 
             let delta = self.time_frame.round_by();
 
-            let fill_before = MarketTimes::new(adj_start, start, delta);
-            let fill_after = MarketTimes::new(end, adj_end, delta);
+            let utc_offset = self
+                .chart_meta
+                .as_ref()
+                .and_then(|m| m.gmtoffset)
+                .unwrap_or_default();
+
+            let fill_before = MarketTimes::new(adj_start, start, delta, utc_offset);
+            let fill_after = MarketTimes::new(end, adj_end, delta, utc_offset);
 
             fill_before
                 .map(Price::new)
