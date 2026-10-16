@@ -3,7 +3,7 @@ use std::time::Duration;
 use std::{io, panic, thread};
 
 use crossbeam_channel::{bounded, select, unbounded, Receiver, Sender};
-use crossterm::event::{Event, MouseEvent, MouseEventKind};
+use crossterm::event::{Event, KeyEventKind, MouseEvent, MouseEventKind};
 use crossterm::{cursor, execute, terminal};
 use lazy_static::lazy_static;
 use parking_lot::{Mutex, RwLock};
@@ -159,7 +159,8 @@ fn main() {
                 }
 
                 match message {
-                    Ok(Event::Key(key_event)) => {
+                    // Windows also reports key releases, only act on presses
+                    Ok(Event::Key(key_event)) if key_event.kind != KeyEventKind::Release => {
                         event::handle_key_bindings(app.mode, key_event, &mut app, &request_redraw);
                     }
                     Ok(Event::Mouse(MouseEvent { kind, row, column,.. }))
