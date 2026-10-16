@@ -39,8 +39,15 @@ impl AddStockState {
         self.error_msg = None;
     }
 
-    pub fn enter(&mut self, chart_type: ChartType) -> super::StockState {
-        super::StockState::new(self.search_string.clone().to_ascii_uppercase(), chart_type)
+    /// The normalized symbol entered by the user, if any
+    pub fn symbol(&self) -> Option<String> {
+        let symbol = self.search_string.trim().to_ascii_uppercase();
+
+        (!symbol.is_empty()).then_some(symbol)
+    }
+
+    pub fn enter(&mut self, symbol: String, chart_type: ChartType) -> super::StockState {
+        super::StockState::new(symbol, chart_type)
     }
 }
 

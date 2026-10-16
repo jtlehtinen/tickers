@@ -10,12 +10,21 @@ use crate::{cleanup_terminal, ENABLE_PRE_POST, SHOW_VOLUMES, SHOW_X_LABELS};
 fn handle_keys_add_stock(keycode: KeyCode, app: &mut app::App) {
     match keycode {
         KeyCode::Enter => {
-            let mut stock = app.add_stock.enter(app.chart_type);
+            let Some(symbol) = app.add_stock.symbol() else {
+                return;
+            };
 
-            stock.set_time_frame(app.time_frame);
+            // Jump to the existing tab instead of adding a duplicate
+            if let Some(idx) = app.stocks.iter().position(|s| s.symbol() == symbol) {
+                app.current_tab = idx;
+            } else {
+                let mut stock = app.add_stock.enter(symbol, app.chart_type);
 
-            app.stocks.push(stock);
-            app.current_tab = app.stocks.len() - 1;
+                stock.set_time_frame(app.time_frame);
+
+                app.stocks.push(stock);
+                app.current_tab = app.stocks.len() - 1;
+            }
 
             app.add_stock.reset();
             app.mode = app.previous_mode;
