@@ -52,11 +52,16 @@ impl Client {
             .await
             .context("Failed to get request")?;
 
+        let status = res.status();
+
         let mut body = res.into_body();
         let mut bytes = Vec::new();
         body.read_to_end(&mut bytes).await?;
 
-        let response = serde_json::from_slice(&bytes)?;
+        // Yahoo returns a JSON error body (handled by callers) for most failures,
+        // but things like rate limiting come back as plain text
+        let response = serde_json::from_slice(&bytes)
+            .with_context(|| format!("Unexpected response from Yahoo ({})", status))?;
 
         Ok(response)
     }
@@ -78,7 +83,7 @@ impl Client {
 
         let url = self.get_url(
             Version::V8,
-            &format!("finance/chart/{}", symbol),
+            &format!("finance/chart/{}", encode_symbol(symbol)),
             Some(params),
         )?;
 
@@ -112,7 +117,7 @@ impl Client {
 
         let url = self.get_url(
             Version::V10,
-            &format!("finance/quoteSummary/{}", symbol),
+            &format!("finance/quoteSummary/{}", encode_symbol(symbol)),
             Some(params),
         )?;
 
@@ -136,7 +141,11 @@ impl Client {
     }
 
     pub async fn get_options_expiration_dates(&self, symbol: &str) -> Result<Vec<i64>> {
-        let url = self.get_url(Version::V7, &format!("finance/options/{}", symbol), None)?;
+        let url = self.get_url(
+            Version::V7,
+            &format!("finance/options/{}", encode_symbol(symbol)),
+            None,
+        )?;
 
         let response: Options = self.get(url, None).await?;
 
@@ -168,7 +177,7 @@ impl Client {
 
         let url = self.get_url(
             Version::V7,
-            &format!("finance/options/{}", symbol),
+            &format!("finance/options/{}", encode_symbol(symbol)),
             Some(params),
         )?;
 
@@ -220,7 +229,12 @@ impl Client {
             .body(())?;
         let mut res = self.client.send_async(request).await?;
 
+        let status = res.status();
         let crumb = res.text().await?;
+
+        if !status.is_success() || crumb.is_empty() || crumb.contains(char::is_whitespace) {
+            bail!("Couldn't fetch crumb ({})", status);
+        }
 
         Ok(CrumbData {
             cookie: cookie.to_string(),
@@ -249,6 +263,26 @@ impl Default for Client {
     }
 }
 
+/// Percent encodes a symbol for use as a URL path segment.
+///
+/// Characters used by Yahoo symbols (e.g. `^GSPC`, `ES=F`, `DX-Y.NYB`) are
+/// kept as is, anything else (spaces, `/`, `?`, `#`, non-ASCII) is encoded so
+/// it can't produce an invalid URL or change which endpoint is requested.
+fn encode_symbol(symbol: &str) -> String {
+    let mut encoded = String::with_capacity(symbol.len());
+
+    for byte in symbol.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b'^' | b'=' => {
+                encoded.push(byte as char)
+            }
+            _ => encoded.push_str(&format!("%{:02X}", byte)),
+        }
+    }
+
+    encoded
+}
+
 #[derive(Debug, Clone)]
 pub enum Version {
     V1,
@@ -271,6 +305,35 @@ impl Version {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_encode_symbol() {
+        for symbol in ["SPY", "^GSPC", "ES=F", "BTC-USD", "DX-Y.NYB", "7203.T"] {
+            assert_eq!(encode_symbol(symbol), symbol);
+        }
+
+        assert_eq!(encode_symbol("BRK B"), "BRK%20B");
+        assert_eq!(encode_symbol("A/B?c#d"), "A%2FB%3Fc%23d");
+        assert_eq!(encode_symbol("Ä"), "%C3%84");
+    }
+
+    #[test]
+    fn test_get_url_with_unusual_symbols() {
+        let client = Client::new();
+
+        for symbol in ["BRK B", "A/B?c#d", "Ä"] {
+            let url = client
+                .get_url(
+                    Version::V8,
+                    &format!("finance/chart/{}", encode_symbol(symbol)),
+                    None,
+                )
+                .unwrap();
+
+            assert!(url.path().starts_with("/v8/finance/chart/"));
+            assert_eq!(url.query(), None);
+        }
+    }
 
     #[async_std::test]
     async fn test_company_data() {
