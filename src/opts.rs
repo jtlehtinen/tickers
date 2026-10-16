@@ -2,8 +2,9 @@ use std::collections::HashMap;
 use std::{fs, process};
 
 use anyhow::{bail, format_err, Error};
+use clap::builder::{PossibleValuesParser, TypedValueParser};
+use clap::Parser;
 use serde::Deserialize;
-use structopt::StructOpt;
 
 use crate::common::{ChartType, TimeFrame};
 use crate::portfolio::Portfolio;
@@ -44,7 +45,7 @@ pub fn resolve_opts() -> Opts {
 }
 
 fn get_cli_opts() -> Opts {
-    Opts::from_args()
+    Opts::parse()
 }
 
 fn get_config_opts() -> Result<Opts, Error> {
@@ -79,61 +80,71 @@ fn get_config_opts() -> Result<Opts, Error> {
     Ok(opts)
 }
 
-#[derive(Debug, StructOpt, Clone, Deserialize, Default)]
-#[structopt(
+#[derive(Debug, Parser, Clone, Deserialize, Default)]
+#[command(
     name = "tickrs",
     about = "Realtime ticker data in your terminal 📈",
-    version = env!("CARGO_PKG_VERSION")
+    version
 )]
 #[serde(default)]
 pub struct Opts {
     // Options
     //
-    #[structopt(short, long, possible_values(&["line", "candle", "kagi"]))]
+    #[arg(
+        short,
+        long,
+        value_parser = PossibleValuesParser::new(["line", "candle", "kagi"])
+            .map(|s| s.parse::<ChartType>().unwrap()),
+    )]
     /// Chart type to start app with [default: line]
     pub chart_type: Option<ChartType>,
-    #[structopt(short, long, use_delimiter = true)]
+    #[arg(short, long, value_delimiter = ',', num_args = 1..)]
     /// Comma separated list of ticker symbols to start app with
     pub symbols: Option<Vec<String>>,
-    #[structopt(short = "t", long, possible_values(&["1D", "1W", "1M", "3M", "6M", "1Y", "5Y"]))]
+    #[arg(
+        short,
+        long,
+        value_parser = PossibleValuesParser::new(TimeFrame::tab_names())
+            .map(|s| s.parse::<TimeFrame>().unwrap()),
+    )]
     /// Use specified time frame when starting program and when new stocks are added [default: 1D]
     pub time_frame: Option<TimeFrame>,
-    #[structopt(short = "i", long)]
+    #[arg(short = 'i', long)]
     /// Interval to update data from API (seconds) [default: 1]
     pub update_interval: Option<u64>,
 
     // Flags
     //
-    #[structopt(short = "p", long)]
+    #[arg(short = 'p', long)]
     /// Enable pre / post market hours for graphs
     pub enable_pre_post: bool,
-    #[structopt(long)]
+    #[arg(long)]
     /// Hide help icon in top right
     pub hide_help: bool,
-    #[structopt(long)]
+    #[arg(long)]
     /// Hide previous close line on 1D chart
     pub hide_prev_close: bool,
-    #[structopt(long)]
+    #[arg(long)]
     /// Hide toggle block
     pub hide_toggle: bool,
-    #[structopt(long)]
+    #[arg(long)]
     /// Show volumes graph
     pub show_volumes: bool,
-    #[structopt(short = "x", long)]
+    #[arg(short = 'x', long)]
     /// Show x-axis labels
     pub show_x_labels: bool,
-    #[structopt(long)]
+    #[arg(long)]
     /// Start in summary mode
     pub summary: bool,
-    #[structopt(long)]
+    #[arg(long)]
     /// Truncate pre market graphing to only 30 minutes prior to markets opening
     pub trunc_pre: bool,
 
-    #[structopt(skip)]
+    #[arg(skip)]
     pub theme: Option<Theme>,
-    #[structopt(skip)]
+    #[arg(skip)]
     pub kagi_options: HashMap<String, KagiOptions>,
-    #[structopt(skip)]
+    #[arg(skip)]
     pub portfolio: Option<Portfolio>,
 }
 
@@ -247,3 +258,65 @@ const DEFAULT_CONFIG: &str = "---
 #    quantity: 100
 #    average_price: 450.25
 ";
+
+#[cfg(test)]
+mod tests {
+    use clap::{CommandFactory, Parser};
+
+    use super::Opts;
+    use crate::common::{ChartType, TimeFrame};
+
+    fn parse(args: &[&str]) -> Opts {
+        Opts::try_parse_from(std::iter::once("tickrs").chain(args.iter().copied())).unwrap()
+    }
+
+    #[test]
+    fn cli_is_valid() {
+        Opts::command().debug_assert();
+    }
+
+    #[test]
+    fn cli_parses_options() {
+        let opts = parse(&["-c", "candle", "-t", "1W", "-i", "5", "-s", "MU,NVDA"]);
+
+        assert_eq!(opts.chart_type, Some(ChartType::Candlestick));
+        assert_eq!(opts.time_frame, Some(TimeFrame::Week1));
+        assert_eq!(opts.update_interval, Some(5));
+        assert_eq!(opts.symbols, Some(vec!["MU".into(), "NVDA".into()]));
+    }
+
+    #[test]
+    fn cli_parses_symbols_like_structopt() {
+        // Empty entries are kept here and dropped later by `normalize_symbols`
+        let opts = parse(&["-s", "MU,NVDA,,AAOI"]);
+        assert_eq!(
+            opts.symbols,
+            Some(vec!["MU".into(), "NVDA".into(), "".into(), "AAOI".into()])
+        );
+
+        // Multiple values per occurrence and repeated occurrences
+        let opts = parse(&["-s", "MU", "NVDA", "--symbols", "AAOI"]);
+        assert_eq!(
+            opts.symbols,
+            Some(vec!["MU".into(), "NVDA".into(), "AAOI".into()])
+        );
+    }
+
+    #[test]
+    fn cli_parses_flags() {
+        let opts = parse(&["-p", "-x", "--summary", "--hide-help", "--trunc-pre"]);
+
+        assert!(opts.enable_pre_post);
+        assert!(opts.show_x_labels);
+        assert!(opts.summary);
+        assert!(opts.hide_help);
+        assert!(opts.trunc_pre);
+        assert!(!opts.show_volumes);
+    }
+
+    #[test]
+    fn cli_rejects_invalid_values() {
+        assert!(Opts::try_parse_from(["tickrs", "-c", "bar"]).is_err());
+        assert!(Opts::try_parse_from(["tickrs", "-t", "2D"]).is_err());
+    }
+}
