@@ -1,7 +1,7 @@
 use ratatui::backend::Backend;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph, Tabs, Wrap};
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Tabs, Wrap};
 use ratatui::{Frame, Terminal};
 
 use crate::app::{App, Mode, ScrollDirection};
@@ -95,52 +95,69 @@ pub fn draw(terminal: &mut Terminal<impl Backend>, app: &mut App) {
 }
 
 fn draw_main(frame: &mut Frame, app: &mut App, area: Rect) {
-    // layout[0] - Header
+    const HELP_ICON: &str = "Help '?'";
+
+    // Sidebar is as wide as the longest symbol (or help icon), plus borders and padding
+    let content_width = app
+        .stocks
+        .iter()
+        .map(|s| s.symbol().chars().count())
+        .chain((!app.hide_help).then_some(HELP_ICON.len()))
+        .max()
+        .unwrap_or(0) as u16;
+
+    // layout[0] - Sidebar
     // layout[1] - Main widget
     let mut layout = Layout::default()
-        .constraints([Constraint::Length(3), Constraint::Min(0)])
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Length(content_width + 4), Constraint::Min(0)])
         .split(area)
         .to_vec();
 
     if !app.stocks.is_empty() {
         frame.render_widget(crate::widget::block::new(" Tabs "), layout[0]);
         let padded = add_padding(layout[0], 1, PaddingDirection::All);
-        layout[0] = padded;
+        layout[0] = add_padding(padded, 1, PaddingDirection::Left);
 
-        // header[0] - Stock symbol tabs
-        // header[1] - (Optional) help icon
-        let header = if app.hide_help {
-            vec![layout[0]]
-        } else {
-            let split = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Min(0), Constraint::Length(10)])
-                .split(layout[0]);
-            split.to_vec()
-        };
+        // sidebar[0] - Stock symbol tabs
+        // sidebar[1] - (Optional) help icon
+        let sidebar = Layout::default()
+            .constraints([
+                Constraint::Min(0),
+                Constraint::Length(!app.hide_help as u16),
+            ])
+            .split(layout[0]);
 
         // Draw tabs
         {
-            let tabs: Vec<_> = app.stocks.iter().map(|w| Line::from(w.symbol())).collect();
+            let tabs: Vec<_> = app
+                .stocks
+                .iter()
+                .map(|w| ListItem::new(w.symbol()))
+                .collect();
 
-            frame.render_widget(
-                Tabs::new(tabs)
-                    .select(app.current_tab)
+            let mut state = ListState::default();
+            state.select(Some(app.current_tab));
+
+            frame.render_stateful_widget(
+                List::new(tabs)
                     .style(style().fg(THEME.text_secondary()))
                     .highlight_style(style().fg(THEME.text_primary())),
-                header[0],
+                sidebar[0],
+                &mut state,
             );
         }
 
         // Draw help icon
         if !app.hide_help {
             frame.render_widget(
-                Paragraph::new(Line::from(Span::styled("Help '?'", style())))
-                    .style(style().fg(THEME.text_normal()))
-                    .alignment(Alignment::Center),
-                header[1],
+                Paragraph::new(Line::from(Span::styled(HELP_ICON, style())))
+                    .style(style().fg(THEME.text_normal())),
+                sidebar[1],
             );
         }
+    } else {
+        layout[1] = area;
     }
 
     // Make sure only displayed stock has network activity

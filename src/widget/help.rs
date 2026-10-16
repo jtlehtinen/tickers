@@ -19,8 +19,8 @@ Change Tab:
   - <Tab>: next stock
   - <Shift+Tab>: previous stock
 Reorder Current Tab:
-  - <Ctrl+Left/h>: move 1 tab left
-  - <Ctrl+Right/l>: move 1 tab right
+  - <Ctrl+Left/h>: move 1 tab up
+  - <Ctrl+Right/l>: move 1 tab down
 Change Time Frame:
   - <Right / l>: next time frame
   - <Left / h>: prev time frame
