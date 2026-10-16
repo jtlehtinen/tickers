@@ -13,6 +13,7 @@ use ratatui::widgets::{
 
 use super::{block, CachableWidget, CacheState};
 use crate::api::model::{OptionsContract, OptionsData, OptionsQuote};
+use crate::common::format_money;
 use crate::draw::{add_padding, PaddingDirection};
 use crate::service::{self, Service};
 use crate::theme::style;
@@ -452,7 +453,7 @@ impl CachableWidget<OptionsState> for OptionsWidget {
                         Line::from(Span::styled(
                             right_align(
                                 "Strike:",
-                                format!("{:.2} {}", option.strike, currency),
+                                format_money(currency, &format!("{:.2}", option.strike), 0),
                                 19,
                             ),
                             style(),

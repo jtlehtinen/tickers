@@ -413,6 +413,58 @@ pub fn format_price(price: f64) -> String {
     format!("{:.*}", price_decimals(price), price)
 }
 
+/// Where a currency's symbol goes, relative to the amount
+enum CurrencySymbol {
+    Prefix(&'static str),
+    Suffix(&'static str),
+}
+
+/// Symbol of a currency (an ISO 4217 code, as reported by Yahoo), if it's
+/// unambiguous, e.g. $ is only used for USD
+fn currency_symbol(currency: &str) -> Option<CurrencySymbol> {
+    use CurrencySymbol::*;
+
+    let symbol = match currency {
+        "USD" => Prefix("$"),
+        "EUR" => Prefix("€"),
+        "GBP" => Prefix("£"),
+        // London listings are quoted in pence
+        "GBp" | "GBX" => Suffix("p"),
+        "JPY" => Prefix("¥"),
+        "CNY" => Prefix("CN¥"),
+        "HKD" => Prefix("HK$"),
+        "CAD" => Prefix("CA$"),
+        "AUD" => Prefix("A$"),
+        "NZD" => Prefix("NZ$"),
+        "SGD" => Prefix("S$"),
+        "TWD" => Prefix("NT$"),
+        "MXN" => Prefix("MX$"),
+        "BRL" => Prefix("R$"),
+        "INR" => Prefix("₹"),
+        "KRW" => Prefix("₩"),
+        "ILS" => Prefix("₪"),
+        _ => return None,
+    };
+
+    Some(symbol)
+}
+
+/// Formats an `amount` in `currency` with its symbol, e.g. $9.97 or 123.40p,
+/// or with its code when there's no unambiguous symbol, e.g. SEK 9.97. The
+/// amount is right aligned to `width`, so amounts can line up in a column.
+pub fn format_money(currency: &str, amount: &str, width: usize) -> String {
+    match currency_symbol(currency) {
+        Some(CurrencySymbol::Prefix(symbol)) => {
+            let money = format!("{}{}", symbol, amount);
+            let width = width + symbol.chars().count();
+
+            format!("{:>width$}", money)
+        }
+        Some(CurrencySymbol::Suffix(symbol)) => format!("{:>width$}{}", amount, symbol),
+        None => format!("{} {:>width$}", currency, amount),
+    }
+}
+
 /// Formats a volume like Yahoo does, e.g. 389.23k or 38.35M
 pub fn format_volume(volume: u64) -> String {
     let volume = volume as f64;
@@ -436,7 +488,9 @@ fn get_weekday(epoch: i64) -> Weekday {
 mod tests {
     use chrono::{Datelike, NaiveDateTime, Weekday};
 
-    use super::{format_price, format_volume, session_previous_close, MarketTimes, DAY};
+    use super::{
+        format_money, format_price, format_volume, session_previous_close, MarketTimes, DAY,
+    };
     use crate::api::model::ChartMeta;
 
     const HOUR: i64 = 60 * 60;
@@ -597,6 +651,29 @@ mod tests {
         assert_eq!(format_price(99_999.99), "99999.99");
         assert_eq!(format_price(105_000.5), "105000.5");
         assert_eq!(format_price(1_234_567.0), "1234567");
+    }
+
+    #[test]
+    fn money_has_currency_symbols() {
+        assert_eq!(format_money("USD", "9.97", 0), "$9.97");
+        assert_eq!(format_money("EUR", "9.97", 0), "€9.97");
+        assert_eq!(format_money("CAD", "9.97", 0), "CA$9.97");
+        assert_eq!(format_money("GBp", "123.40", 0), "123.40p");
+    }
+
+    #[test]
+    fn money_without_symbol_has_currency_code() {
+        assert_eq!(format_money("SEK", "9.97", 0), "SEK 9.97");
+        assert_eq!(format_money("CHF", "9.97", 0), "CHF 9.97");
+    }
+
+    #[test]
+    fn money_lines_up_in_a_column() {
+        assert_eq!(format_money("USD", "9.97", 5), " $9.97");
+        assert_eq!(format_money("USD", "10.28", 5), "$10.28");
+        assert_eq!(format_money("EUR", "9.97", 5), " €9.97");
+        assert_eq!(format_money("GBp", "9.97", 5), " 9.97p");
+        assert_eq!(format_money("SEK", "9.97", 5), "SEK  9.97");
     }
 
     #[test]

@@ -9,7 +9,7 @@ use super::chart::{
 };
 use super::stock::StockState;
 use super::{CachableWidget, CacheState};
-use crate::common::{format_price, ChartType, TimeFrame};
+use crate::common::{format_money, format_price, ChartType, TimeFrame};
 use crate::draw::{add_padding, PaddingDirection};
 use crate::theme::style;
 use crate::widget::stock;
@@ -95,7 +95,7 @@ impl CachableWidget<StockState> for StockSummaryWidget {
                     Span::styled("C: ", style().fg(THEME.text_normal())),
                     Span::styled(
                         if loaded {
-                            format!("{} {:>width$}", currency, current_fmt, width = price_width)
+                            format_money(currency, &current_fmt, price_width)
                         } else {
                             "".to_string()
                         },
@@ -108,7 +108,7 @@ impl CachableWidget<StockState> for StockSummaryWidget {
                     Span::styled("H: ", style().fg(THEME.text_normal())),
                     Span::styled(
                         if loaded {
-                            format!("{} {:>width$}", currency, high_fmt, width = price_width)
+                            format_money(currency, &high_fmt, price_width)
                         } else {
                             "".to_string()
                         },
@@ -135,7 +135,7 @@ impl CachableWidget<StockState> for StockSummaryWidget {
                     Span::styled("L: ", style().fg(THEME.text_normal())),
                     Span::styled(
                         if loaded {
-                            format!("{} {:>width$}", currency, low_fmt, width = price_width)
+                            format_money(currency, &low_fmt, price_width)
                         } else {
                             "".to_string()
                         },

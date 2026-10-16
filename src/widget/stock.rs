@@ -692,7 +692,7 @@ impl CachableWidget<StockState> for StockWidget {
                     Span::styled("C: ", style()),
                     Span::styled(
                         if loaded {
-                            format!("{} {:>width$}", currency, current_fmt, width = price_width)
+                            format_money(currency, &current_fmt, price_width)
                         } else {
                             "".to_string()
                         },
@@ -726,7 +726,7 @@ impl CachableWidget<StockState> for StockWidget {
                     Span::styled("H: ", style()),
                     Span::styled(
                         if loaded {
-                            format!("{} {:>width$}", currency, high_fmt, width = price_width)
+                            format_money(currency, &high_fmt, price_width)
                         } else {
                             "".to_string()
                         },
@@ -753,7 +753,7 @@ impl CachableWidget<StockState> for StockWidget {
                     Span::styled("L: ", style()),
                     Span::styled(
                         if loaded {
-                            format!("{} {:>width$}", currency, low_fmt, width = price_width)
+                            format_money(currency, &low_fmt, price_width)
                         } else {
                             "".to_string()
                         },
@@ -1202,7 +1202,7 @@ fn market_state_span<'a>(market_state: Option<MarketState>) -> Span<'a> {
     }
 }
 
-/// Line showing the bid and ask as "Bid: USD 6.33 × 100  Ask: USD 7.51 × 200"
+/// Line showing the bid and ask as "Bid: $6.33 × 100  Ask: $7.51 × 200"
 fn offers_line<'a>(
     bid: Option<&Offer>,
     ask: Option<&Offer>,
@@ -1212,7 +1212,7 @@ fn offers_line<'a>(
     let format_offer = |offer: Option<&Offer>| match offer {
         _ if !loaded => "".to_string(),
         Some(offer) => {
-            let price = format!("{} {}", currency, format_price(offer.price));
+            let price = format_money(currency, &format_price(offer.price), 0);
 
             match &offer.size {
                 Some(size) => format!("{} × {}", price, size),
