@@ -1,3 +1,5 @@
+use std::cell::Cell;
+
 use super::*;
 use crate::api::model::{ChartMeta, CompanyData};
 use crate::api::AssetClass;
@@ -10,21 +12,27 @@ pub struct StockService {
     prices_handle: AsyncTaskHandle<(TimeFrame, ChartMeta, Vec<Price>)>,
     /// Only for US listings, started once their asset class is known
     nasdaq_handle: Option<AsyncTaskHandle<NasdaqData>>,
+    /// Whether the stock is shown, i.e. the service is resumed
+    shown: Cell<bool>,
 }
 
 impl StockService {
+    /// Starts out like a stock that isn't shown, only fetching the quote (for
+    /// the tabs) until resumed, so many stocks don't all fetch their chart at
+    /// startup
     pub fn new(symbol: String, time_frame: TimeFrame) -> StockService {
         let task = CurrentPrice::new(symbol.clone());
-        let current_price_handle = task.connect();
+        let current_price_handle = task.connect_with(AsyncTaskCommand::Background);
 
         let task = Prices::new(symbol.clone(), time_frame);
-        let prices_handle = task.connect();
+        let prices_handle = task.connect_with(AsyncTaskCommand::Pause);
 
         StockService {
             symbol,
             current_price_handle,
             prices_handle,
             nasdaq_handle: None,
+            shown: Cell::new(false),
         }
     }
 
@@ -33,15 +41,26 @@ impl StockService {
         if self.nasdaq_handle.is_none() {
             let task = NasdaqQuote::new(self.symbol.clone(), asset_class);
 
-            self.nasdaq_handle = Some(task.connect());
+            self.nasdaq_handle = Some(task.connect_with(self.command()));
         }
     }
 
+    /// Only fetches the chart once the stock is shown, as e.g. changing the
+    /// time frame changes it for every stock
     pub fn update_time_frame(&mut self, time_frame: TimeFrame) {
         let task = Prices::new(self.symbol.clone(), time_frame);
-        let prices_handle = task.connect();
+        let prices_handle = task.connect_with(self.command());
 
         self.prices_handle = prices_handle;
+    }
+
+    /// Command for new tasks that only run while the stock is shown
+    fn command(&self) -> AsyncTaskCommand {
+        if self.shown.get() {
+            AsyncTaskCommand::Resume
+        } else {
+            AsyncTaskCommand::Pause
+        }
     }
 }
 
@@ -94,6 +113,7 @@ impl Service for StockService {
     /// Keeps updating the quote in the background, since the tabs show the
     /// change of every stock
     fn pause(&self) {
+        self.shown.set(false);
         self.current_price_handle.background();
         self.prices_handle.pause();
 
@@ -103,6 +123,7 @@ impl Service for StockService {
     }
 
     fn resume(&self) {
+        self.shown.set(true);
         self.current_price_handle.resume();
         self.prices_handle.resume();
 

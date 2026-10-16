@@ -111,6 +111,12 @@ pub trait AsyncTask: 'static {
 
     /// Runs the task on the async runtime and returns a handle to query updates from
     fn connect(&self) -> AsyncTaskHandle<Self::Response> {
+        self.connect_with(AsyncTaskCommand::Resume)
+    }
+
+    /// Like `connect`, but the task starts out following `command`, e.g. a
+    /// paused task doesn't run until it's resumed
+    fn connect_with(&self, command: AsyncTaskCommand) -> AsyncTaskHandle<Self::Response> {
         let (command_sender, command_receiver) = bounded(1);
         let (response_sender, response_receiver) = unbounded::<TaskResult<Self::Response>>();
         let data_received = DATA_RECEIVED.0.clone();
@@ -127,26 +133,16 @@ pub trait AsyncTask: 'static {
         let handle = task::spawn(async move {
             let mut last_updated: Option<Instant> = None;
 
-            let mut command = AsyncTaskCommand::Resume;
+            let mut command = command;
 
             loop {
                 if let Ok(new_command) = command_receiver.try_recv() {
                     command = new_command;
                 }
 
-                // Always execute the task initially, then every interval while not paused
-                let is_due = match (last_updated, command) {
-                    (None, _) => true,
-                    (Some(_), AsyncTaskCommand::Pause) => false,
-                    (Some(last_updated), AsyncTaskCommand::Resume) => {
-                        last_updated.elapsed() >= interval
-                    }
-                    (Some(last_updated), AsyncTaskCommand::Background) => {
-                        last_updated.elapsed() >= background_interval
-                    }
-                };
+                let elapsed = last_updated.map(|last_updated| last_updated.elapsed());
 
-                if is_due {
+                if command.is_due(elapsed, interval, background_interval) {
                     let result = <Self as AsyncTask>::task(input.clone()).await;
                     let succeeded = result.is_ok();
 
@@ -176,11 +172,31 @@ pub trait AsyncTask: 'static {
 }
 
 #[derive(Debug, Clone, Copy)]
-enum AsyncTaskCommand {
+pub enum AsyncTaskCommand {
+    /// Don't run, not even initially
     Pause,
     Resume,
     /// Run less often
     Background,
+}
+
+impl AsyncTaskCommand {
+    /// Whether a task following this command should run, given the time since
+    /// it last ran (`None` if it hasn't yet). Tasks run as soon as they aren't
+    /// paused, then every interval.
+    fn is_due(
+        self,
+        elapsed: Option<Duration>,
+        interval: Duration,
+        background_interval: Duration,
+    ) -> bool {
+        match (self, elapsed) {
+            (AsyncTaskCommand::Pause, _) => false,
+            (_, None) => true,
+            (AsyncTaskCommand::Resume, Some(elapsed)) => elapsed >= interval,
+            (AsyncTaskCommand::Background, Some(elapsed)) => elapsed >= background_interval,
+        }
+    }
 }
 
 /// Result of a task, the error being a displayable message
@@ -216,5 +232,38 @@ impl<R> Drop for AsyncTaskHandle<R> {
     fn drop(&mut self) {
         let handle = self.handle.take().unwrap();
         task::spawn(async { handle.cancel().await });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const INTERVAL: Duration = Duration::from_secs(1);
+    const BACKGROUND: Duration = Duration::from_secs(15);
+
+    fn is_due(command: AsyncTaskCommand, elapsed: Option<u64>) -> bool {
+        command.is_due(elapsed.map(Duration::from_secs), INTERVAL, BACKGROUND)
+    }
+
+    #[test]
+    fn paused_tasks_never_run() {
+        assert!(!is_due(AsyncTaskCommand::Pause, None));
+        assert!(!is_due(AsyncTaskCommand::Pause, Some(3600)));
+    }
+
+    #[test]
+    fn tasks_run_initially_unless_paused() {
+        assert!(is_due(AsyncTaskCommand::Resume, None));
+        assert!(is_due(AsyncTaskCommand::Background, None));
+    }
+
+    #[test]
+    fn tasks_run_every_interval() {
+        assert!(!is_due(AsyncTaskCommand::Resume, Some(0)));
+        assert!(is_due(AsyncTaskCommand::Resume, Some(1)));
+
+        assert!(!is_due(AsyncTaskCommand::Background, Some(14)));
+        assert!(is_due(AsyncTaskCommand::Background, Some(15)));
     }
 }
