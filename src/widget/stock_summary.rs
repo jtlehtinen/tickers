@@ -106,17 +106,19 @@ impl CachableWidget<StockState> for StockSummaryWidget {
                     ),
                     Span::styled(
                         if loaded {
-                            high_pct.map_or("".to_string(), |p| format!("{:>9}", format!("{:.2}%", p * 100.0)))
+                            high_pct.map_or("".to_string(), |p| {
+                                format!("{:>9}", format!("{:.2}%", p * 100.0))
+                            })
                         } else {
                             "".to_string()
                         },
-                        style()
-                            .add_modifier(Modifier::BOLD)
-                            .fg(if high_pct.unwrap_or(0.0) >= 0.0 {
+                        style().add_modifier(Modifier::BOLD).fg(
+                            if high_pct.unwrap_or(0.0) >= 0.0 {
                                 THEME.profit()
                             } else {
                                 THEME.loss()
-                            }),
+                            },
+                        ),
                     ),
                 ]),
                 Line::from(vec![
@@ -131,7 +133,9 @@ impl CachableWidget<StockState> for StockSummaryWidget {
                     ),
                     Span::styled(
                         if loaded {
-                            low_pct.map_or("".to_string(), |p| format!("{:>9}", format!("{:.2}%", p * 100.0)))
+                            low_pct.map_or("".to_string(), |p| {
+                                format!("{:>9}", format!("{:.2}%", p * 100.0))
+                            })
                         } else {
                             "".to_string()
                         },

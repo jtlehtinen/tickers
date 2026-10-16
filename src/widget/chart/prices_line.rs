@@ -126,18 +126,10 @@ impl StatefulWidget for PricesLineChart<'_> {
             (vec![], None, None)
         };
 
-        let prev_close_line = if state.time_frame == TimeFrame::Day1
-            && self.loaded
-            && !*HIDE_PREV_CLOSE
-            && state.prev_close_price.is_some()
-        {
-            Some(vec![
-                (x_bounds[0], state.prev_close_price.unwrap()),
-                (x_bounds[1], state.prev_close_price.unwrap()),
-            ])
-        } else {
-            None
-        };
+        let prev_close_line = state
+            .prev_close_price
+            .filter(|_| state.time_frame == TimeFrame::Day1 && self.loaded && !*HIDE_PREV_CLOSE)
+            .map(|prev_close| vec![(x_bounds[0], prev_close), (x_bounds[1], prev_close)]);
 
         let mut datasets = vec![Dataset::default()
             .marker(Marker::Braille)

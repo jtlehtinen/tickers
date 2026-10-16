@@ -437,7 +437,6 @@ impl StockState {
     }
 
     pub fn x_labels(&'_ self, width: u16, prices: &[Price]) -> Vec<Span<'_>> {
-
         let mut labels = vec![];
 
         let dates: Vec<i64> = prices.iter().map(|i| i.date).collect();
