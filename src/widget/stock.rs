@@ -452,20 +452,23 @@ impl StockState {
 
     pub fn y_labels(&'_ self, min: f64, max: f64) -> Vec<Span<'_>> {
         if self.loaded() {
-            vec![
-                Span::styled(
-                    format!("{:>8}", format_decimals(min)),
-                    style().fg(THEME.text_normal()),
-                ),
-                Span::styled(
-                    format!("{:>8}", format_decimals((min + max) / 2.0)),
-                    style().fg(THEME.text_normal()),
-                ),
-                Span::styled(
-                    format!("{:>8}", format_decimals(max)),
-                    style().fg(THEME.text_normal()),
-                ),
-            ]
+            // Same decimals for every label, from the largest label so it
+            // fits, unless all labels are below 1 and need more decimals
+            let decimals = if max.abs() >= 1.0 {
+                price_decimals(max)
+            } else {
+                price_decimals(min)
+            };
+
+            [min, (min + max) / 2.0, max]
+                .into_iter()
+                .map(|value| {
+                    Span::styled(
+                        format!("{:>8.*}", decimals, value),
+                        style().fg(THEME.text_normal()),
+                    )
+                })
+                .collect()
         } else {
             vec![
                 Span::raw("       ".to_string()),
@@ -641,9 +644,16 @@ impl CachableWidget<StockState> for StockWidget {
             info_chunks[0] = add_padding(info_chunks[0], 1, PaddingDirection::Top);
 
             let (high, low) = state.high_low(&data);
-            let current_fmt = format_decimals(state.current_price());
-            let high_fmt = format_decimals(high);
-            let low_fmt = format_decimals(low);
+            let current_fmt = format_price(state.current_price());
+            let high_fmt = format_price(high);
+            let low_fmt = format_price(low);
+
+            // Right align the prices to the widest, so they line up in a column
+            let price_width = [&current_fmt, &high_fmt, &low_fmt]
+                .iter()
+                .map(|p| p.len())
+                .max()
+                .unwrap_or_default();
 
             let (high_pct, low_pct) = if state.time_frame == TimeFrame::Day1 {
                 if let Some(prev_close) = state.prev_close_price {
@@ -679,7 +689,7 @@ impl CachableWidget<StockState> for StockWidget {
                     Span::styled("C: ", style()),
                     Span::styled(
                         if loaded {
-                            format!("{}{}", currency, current_fmt)
+                            format!("{} {:>width$}", currency, current_fmt, width = price_width)
                         } else {
                             "".to_string()
                         },
@@ -690,10 +700,11 @@ impl CachableWidget<StockState> for StockWidget {
                     Span::styled(
                         if loaded {
                             format!(
-                                "{:>8.2}% ({}{})",
+                                "{:>8.2}% ({}{:.*})",
                                 pct_change * 100.0,
                                 if dollar_change >= 0.0 { "+" } else { "" },
-                                format_decimals(dollar_change),
+                                price_decimals(state.current_price()),
+                                dollar_change,
                             )
                         } else {
                             "".to_string()
@@ -711,7 +722,7 @@ impl CachableWidget<StockState> for StockWidget {
                     Span::styled("H: ", style()),
                     Span::styled(
                         if loaded {
-                            format!("{}{}", currency, high_fmt)
+                            format!("{} {:>width$}", currency, high_fmt, width = price_width)
                         } else {
                             "".to_string()
                         },
@@ -738,7 +749,7 @@ impl CachableWidget<StockState> for StockWidget {
                     Span::styled("L: ", style()),
                     Span::styled(
                         if loaded {
-                            format!("{}{}", currency, low_fmt)
+                            format!("{} {:>width$}", currency, low_fmt, width = price_width)
                         } else {
                             "".to_string()
                         },
@@ -825,14 +836,14 @@ impl CachableWidget<StockState> for StockWidget {
                     Line::from(vec![
                         Span::styled("Avg: ", style().fg(THEME.text_normal())),
                         Span::styled(
-                            format_decimals(portfolio_item.average_price),
+                            format_price(portfolio_item.average_price),
                             style().fg(THEME.text_secondary()),
                         ),
                     ]),
                     Line::from(vec![
                         Span::styled("P/L: ", style()),
                         Span::styled(
-                            format_decimals(profit_loss).to_string(),
+                            format_price(profit_loss),
                             style().add_modifier(Modifier::BOLD).fg(profit_loss_color),
                         ),
                         Span::styled(
@@ -1157,7 +1168,7 @@ fn truncate_title(title: &str, max_width: usize) -> String {
     format!("{trimmed}...{fill}")
 }
 
-/// Line showing the bid and ask as "Bid: USD6.33 × 100  Ask: USD7.51 × 200"
+/// Line showing the bid and ask as "Bid: USD 6.33 × 100  Ask: USD 7.51 × 200"
 fn offers_line<'a>(
     bid: Option<&Offer>,
     ask: Option<&Offer>,
@@ -1167,7 +1178,7 @@ fn offers_line<'a>(
     let format_offer = |offer: Option<&Offer>| match offer {
         _ if !loaded => "".to_string(),
         Some(offer) => {
-            let price = format!("{}{}", currency, format_decimals(offer.price));
+            let price = format!("{} {}", currency, format_price(offer.price));
 
             match &offer.size {
                 Some(size) => format!("{} × {}", price, size),

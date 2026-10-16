@@ -391,6 +391,28 @@ pub fn format_decimals(value: f64) -> String {
     }
 }
 
+/// Decimals to show a price with: cents for prices of at least 1, and around
+/// four significant digits for smaller prices. Large prices drop decimals to
+/// fit in 8 chars
+pub fn price_decimals(price: f64) -> usize {
+    let abs = price.abs();
+
+    if abs == 0.0 || !abs.is_finite() {
+        2
+    } else if abs < 1.0 {
+        ((3.0 - abs.log10().floor()) as usize).clamp(4, 8)
+    } else {
+        let int_digits = abs.log10().floor() as usize + 1;
+
+        // Max chars minus (int digits + decimal place)
+        2.min(7usize.saturating_sub(int_digits))
+    }
+}
+
+pub fn format_price(price: f64) -> String {
+    format!("{:.*}", price_decimals(price), price)
+}
+
 fn get_weekday(epoch: i64) -> Weekday {
     NaiveDateTime::from_timestamp_opt(epoch, 0)
         .unwrap_or_default()
@@ -401,7 +423,7 @@ fn get_weekday(epoch: i64) -> Weekday {
 mod tests {
     use chrono::{Datelike, NaiveDateTime, Weekday};
 
-    use super::{session_previous_close, MarketTimes, DAY};
+    use super::{format_price, session_previous_close, MarketTimes, DAY};
     use crate::api::model::ChartMeta;
 
     const HOUR: i64 = 60 * 60;
@@ -539,5 +561,33 @@ mod tests {
     fn previous_close_after_open_is_chart_previous_close() {
         // 10-16 14:00 UTC, the session is open
         assert_eq!(session_previous_close(&onds_meta(1_792_159_200)), 6.14);
+    }
+
+    #[test]
+    fn prices_of_at_least_one_have_cents() {
+        assert_eq!(format_price(915.65), "915.65");
+        assert_eq!(format_price(-15.59), "-15.59");
+        assert_eq!(format_price(6.3), "6.30");
+        assert_eq!(format_price(1.0), "1.00");
+    }
+
+    #[test]
+    fn prices_below_one_have_four_significant_digits() {
+        assert_eq!(format_price(0.5), "0.5000");
+        assert_eq!(format_price(0.0123), "0.01230");
+        assert_eq!(format_price(0.00001234), "0.00001234");
+        assert_eq!(format_price(0.000000012), "0.00000001");
+    }
+
+    #[test]
+    fn large_prices_fit_in_eight_chars() {
+        assert_eq!(format_price(99_999.99), "99999.99");
+        assert_eq!(format_price(105_000.5), "105000.5");
+        assert_eq!(format_price(1_234_567.0), "1234567");
+    }
+
+    #[test]
+    fn zero_price_has_cents() {
+        assert_eq!(format_price(0.0), "0.00");
     }
 }

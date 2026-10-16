@@ -9,7 +9,7 @@ use super::chart::{
 };
 use super::stock::StockState;
 use super::{CachableWidget, CacheState};
-use crate::common::{format_decimals, ChartType, TimeFrame};
+use crate::common::{format_price, ChartType, TimeFrame};
 use crate::draw::{add_padding, PaddingDirection};
 use crate::theme::style;
 use crate::widget::stock;
@@ -67,9 +67,16 @@ impl CachableWidget<StockState> for StockSummaryWidget {
             layout[0] = add_padding(layout[0], 2, PaddingDirection::Right);
 
             let (high, low) = state.high_low(&data);
-            let current_fmt = format_decimals(state.current_price());
-            let high_fmt = format_decimals(high);
-            let low_fmt = format_decimals(low);
+            let current_fmt = format_price(state.current_price());
+            let high_fmt = format_price(high);
+            let low_fmt = format_price(low);
+
+            // Right align the prices to the widest, so they line up in a column
+            let price_width = [&current_fmt, &high_fmt, &low_fmt]
+                .iter()
+                .map(|p| p.len())
+                .max()
+                .unwrap_or_default();
 
             let (high_pct, low_pct) = if state.time_frame == TimeFrame::Day1 {
                 if let Some(prev_close) = state.prev_close_price {
@@ -88,7 +95,7 @@ impl CachableWidget<StockState> for StockSummaryWidget {
                     Span::styled("C: ", style().fg(THEME.text_normal())),
                     Span::styled(
                         if loaded {
-                            format!("{}{}", currency, current_fmt)
+                            format!("{} {:>width$}", currency, current_fmt, width = price_width)
                         } else {
                             "".to_string()
                         },
@@ -101,7 +108,7 @@ impl CachableWidget<StockState> for StockSummaryWidget {
                     Span::styled("H: ", style().fg(THEME.text_normal())),
                     Span::styled(
                         if loaded {
-                            format!("{}{}", currency, high_fmt)
+                            format!("{} {:>width$}", currency, high_fmt, width = price_width)
                         } else {
                             "".to_string()
                         },
@@ -128,7 +135,7 @@ impl CachableWidget<StockState> for StockSummaryWidget {
                     Span::styled("L: ", style().fg(THEME.text_normal())),
                     Span::styled(
                         if loaded {
-                            format!("{}{}", currency, low_fmt)
+                            format!("{} {:>width$}", currency, low_fmt, width = price_width)
                         } else {
                             "".to_string()
                         },
