@@ -1,4 +1,5 @@
 # tick-rs
+
 [![Actions Status](https://github.com/tarkah/tickrs/workflows/Test/badge.svg)](https://github.com/tarkah/tickrs/actions)
 
 Realtime ticker data in your terminal 📈 Built with Rust. Data sourced from Yahoo! Finance.
