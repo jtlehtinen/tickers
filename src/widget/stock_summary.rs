@@ -83,6 +83,13 @@ impl CachableWidget<StockState> for StockSummaryWidget {
                 .max()
                 .unwrap_or_default();
 
+            // Right align the changes to the edge, like the current price's change,
+            // so they line up whatever the width of the prices
+            let money_width = format_money(currency, &current_fmt, price_width)
+                .chars()
+                .count();
+            let pct_width = (layout[0].width as usize).saturating_sub("H: ".len() + money_width);
+
             let (high_pct, low_pct) = if state.time_frame == TimeFrame::Day1 {
                 if let Some(prev_close) = state.prev_close_price {
                     (Some(high / prev_close - 1.0), Some(low / prev_close - 1.0))
@@ -122,7 +129,7 @@ impl CachableWidget<StockState> for StockSummaryWidget {
                     Span::styled(
                         if loaded {
                             high_pct.map_or("".to_string(), |p| {
-                                format!("{:>9}", format!("{:.2}%", p * 100.0))
+                                format!("{:>pct_width$}", format!("{:.2}%", p * 100.0))
                             })
                         } else {
                             "".to_string()
@@ -149,7 +156,7 @@ impl CachableWidget<StockState> for StockSummaryWidget {
                     Span::styled(
                         if loaded {
                             low_pct.map_or("".to_string(), |p| {
-                                format!("{:>9}", format!("{:.2}%", p * 100.0))
+                                format!("{:>pct_width$}", format!("{:.2}%", p * 100.0))
                             })
                         } else {
                             "".to_string()
