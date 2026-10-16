@@ -17,12 +17,12 @@ pub struct StockService {
 }
 
 impl StockService {
-    /// Starts out like a stock that isn't shown, only fetching the quote (for
-    /// the tabs) until resumed, so many stocks don't all fetch their chart at
-    /// startup
+    /// Starts out like a stock that isn't shown, fetching nothing until
+    /// resumed, so many stocks don't all fetch their data at startup (the
+    /// tabs get their quotes from `TabQuotesService`)
     pub fn new(symbol: String, time_frame: TimeFrame) -> StockService {
         let task = CurrentPrice::new(symbol.clone());
-        let current_price_handle = task.connect_with(AsyncTaskCommand::Background);
+        let current_price_handle = task.connect_with(AsyncTaskCommand::Pause);
 
         let task = Prices::new(symbol.clone(), time_frame);
         let prices_handle = task.connect_with(AsyncTaskCommand::Pause);
@@ -54,7 +54,11 @@ impl StockService {
         self.prices_handle = prices_handle;
     }
 
-    /// Command for new tasks that only run while the stock is shown
+    pub fn is_shown(&self) -> bool {
+        self.shown.get()
+    }
+
+    /// Command for new tasks, which only run while the stock is shown
     fn command(&self) -> AsyncTaskCommand {
         if self.shown.get() {
             AsyncTaskCommand::Resume
@@ -110,11 +114,9 @@ impl Service for StockService {
         updates
     }
 
-    /// Keeps updating the quote in the background, since the tabs show the
-    /// change of every stock
     fn pause(&self) {
         self.shown.set(false);
-        self.current_price_handle.background();
+        self.current_price_handle.pause();
         self.prices_handle.pause();
 
         if let Some(handle) = self.nasdaq_handle.as_ref() {

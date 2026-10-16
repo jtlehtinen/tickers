@@ -191,6 +191,37 @@ pub struct OptionalCompanyMarketPrice {
     pub fmt: Option<String>,
 }
 
+/// Response of Yahoo's quote endpoint, which quotes many symbols at once
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct Quotes {
+    pub quote_response: QuotesStatus,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct QuotesStatus {
+    /// Unknown symbols are left out
+    pub result: Option<Vec<QuoteData>>,
+    pub error: Option<Error>,
+}
+
+/// A symbol's quote, the same prices as `CompanyPrice` but without formatting
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct QuoteData {
+    pub symbol: String,
+    pub regular_market_price: Option<f64>,
+    pub regular_market_time: Option<i64>,
+    pub regular_market_previous_close: Option<f64>,
+    pub pre_market_price: Option<f64>,
+    pub pre_market_time: Option<i64>,
+    pub post_market_price: Option<f64>,
+    pub post_market_time: Option<i64>,
+    /// PREPRE, PRE, REGULAR, POST, POSTPOST or CLOSED
+    pub market_state: Option<String>,
+}
+
 #[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Options {

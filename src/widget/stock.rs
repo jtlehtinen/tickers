@@ -19,7 +19,7 @@ use crate::api::AssetClass;
 use crate::common::*;
 use crate::draw::{add_padding, PaddingDirection};
 use crate::service::{self, Service};
-use crate::task::{MarketState, NasdaqData, Offer};
+use crate::task::{DayQuote, MarketState, NasdaqData, Offer};
 use crate::theme::style;
 use crate::{
     DEFAULT_TIMESTAMPS, ENABLE_PRE_POST, HIDE_PREV_CLOSE, HIDE_TOGGLE, OPTS, SHOW_VOLUMES,
@@ -252,21 +252,33 @@ impl StockState {
         }
     }
 
+    /// Updates the quote from the quotes fetched for every tab, unless the
+    /// stock is shown, as it then fetches its own more often
+    pub fn update_tab_quote(&mut self, quote: DayQuote) {
+        if !self.stock_service.is_shown() {
+            self.set_day_quote(quote);
+        }
+    }
+
+    fn set_day_quote(&mut self, quote: DayQuote) {
+        self.quote_received = Some((Instant::now(), Local::now()));
+        self.current_regular_price = quote.regular_price;
+        self.current_extended_price = quote.extended_price;
+        self.day_change_baseline = Some(quote.day_change_baseline);
+        self.market_state = quote.market_state;
+    }
+
     pub fn update(&mut self) {
         let updates = self.stock_service.updates();
 
         for update in updates {
             match update {
                 service::stock::Update::NewPrice(quote) => {
-                    self.quote_received = Some((Instant::now(), Local::now()));
                     self.current_price_error = None;
-                    self.current_regular_price = quote.regular_price;
-                    self.current_extended_price = quote.extended_price;
-                    self.day_change_baseline = Some(quote.day_change_baseline);
+                    self.set_day_quote(quote.day);
                     self.reg_mkt_volume = Some(quote.volume);
                     self.yahoo_bid = quote.bid;
                     self.yahoo_ask = quote.ask;
-                    self.market_state = quote.market_state;
                 }
                 service::stock::Update::Prices((time_frame, chart_meta, prices)) => {
                     self.prices_error = None;
@@ -1179,8 +1191,8 @@ fn clip_wicks(bodies: (f64, f64), wicks: (f64, f64)) -> (f64, f64) {
     )
 }
 
-/// How long without a new quote before it's stale. Longer than the background
-/// update interval, so switching to a tab doesn't flash it.
+/// How long without a new quote before it's stale. Longer than the interval of
+/// the tabs' quotes, so switching to a tab doesn't flash it.
 fn stale_after(update_interval: u64) -> Duration {
     Duration::from_secs(update_interval.saturating_mul(3).max(20))
 }

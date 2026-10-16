@@ -11,6 +11,7 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 use rclite::Arc;
 use service::default_timestamps::DefaultTimestampService;
+use service::tab_quotes::TabQuotesService;
 use tickrs_api as api;
 
 use crate::app::DebugInfo;
@@ -77,6 +78,13 @@ fn main() {
 
     let default_timestamp_service = DefaultTimestampService::new();
 
+    let tab_quotes_service = TabQuotesService::new(
+        starting_stocks
+            .iter()
+            .map(|s| s.symbol().to_string())
+            .collect(),
+    );
+
     let app = Arc::new(Mutex::new(app::App {
         mode: starting_mode,
         stocks: starting_stocks,
@@ -98,6 +106,7 @@ fn main() {
         },
         time_frame: opts.time_frame.unwrap_or(TimeFrame::Day1),
         default_timestamp_service,
+        tab_quotes_service,
         summary_scroll_state: Default::default(),
         chart_type: starting_chart_type,
     }));

@@ -1,6 +1,7 @@
 pub mod default_timestamps;
 pub mod options;
 pub mod stock;
+pub mod tab_quotes;
 
 /// Container of one or more tasks, that manages capturing all queued task responses
 /// into one update response

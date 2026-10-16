@@ -2,6 +2,7 @@ use crossterm::event::Event;
 
 use crate::common::{ChartType, TimeFrame};
 use crate::service::default_timestamps::DefaultTimestampService;
+use crate::service::tab_quotes::TabQuotesService;
 use crate::service::Service;
 use crate::{widget, DEFAULT_TIMESTAMPS};
 
@@ -26,16 +27,29 @@ pub struct App {
     pub previous_mode: Mode,
     pub time_frame: TimeFrame,
     pub default_timestamp_service: DefaultTimestampService,
+    pub tab_quotes_service: TabQuotesService,
     pub summary_scroll_state: SummaryScrollState,
     pub chart_type: ChartType,
 }
 
 impl App {
-    pub fn update(&self) {
+    pub fn update(&mut self) {
         let mut timestamp_updates = self.default_timestamp_service.updates();
 
         if let Some(new_defaults) = timestamp_updates.pop() {
             *DEFAULT_TIMESTAMPS.write() = new_defaults;
+        }
+
+        // Follow stocks being added and removed
+        let symbols = self.stocks.iter().map(|s| s.symbol().to_string()).collect();
+        self.tab_quotes_service.set_symbols(symbols);
+
+        for quotes in self.tab_quotes_service.updates() {
+            for stock in self.stocks.iter_mut() {
+                if let Some(quote) = quotes.get(stock.symbol()) {
+                    stock.update_tab_quote(quote.clone());
+                }
+            }
         }
     }
 

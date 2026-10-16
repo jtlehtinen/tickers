@@ -2,7 +2,7 @@ use async_std::sync::Arc;
 use futures::future::BoxFuture;
 
 use super::*;
-use crate::api::model::{CompanyData, CompanyPrice, OptionalCompanyMarketPrice};
+use crate::api::model::{CompanyData, CompanyPrice, OptionalCompanyMarketPrice, QuoteData};
 
 /// Returns the current quote, and the company profile from the same response
 pub struct CurrentPrice {
@@ -38,9 +38,7 @@ impl AsyncTask for CurrentPrice {
             let detail = response.summary_detail.as_ref();
 
             let quote = Quote {
-                regular_price: response.price.regular_market_price.price,
-                day_change_baseline: day_change_baseline(&response.price),
-                extended_price: extended_hours_price(&response.price),
+                day: DayQuote::from(&response.price),
                 volume: response
                     .price
                     .regular_market_volume
@@ -49,11 +47,6 @@ impl AsyncTask for CurrentPrice {
                     .unwrap_or_default(),
                 bid: detail.and_then(|d| Offer::new(d.bid.as_ref(), d.bid_size.as_ref())),
                 ask: detail.and_then(|d| Offer::new(d.ask.as_ref(), d.ask_size.as_ref())),
-                market_state: response
-                    .price
-                    .market_state
-                    .as_deref()
-                    .map(MarketState::from_yahoo),
             };
 
             Ok((quote, response))
@@ -63,15 +56,65 @@ impl AsyncTask for CurrentPrice {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Quote {
+    pub day: DayQuote,
+    pub volume: String,
+    pub bid: Option<Offer>,
+    pub ask: Option<Offer>,
+}
+
+/// The prices of a quote and today's change, all that the tabs show of a stock
+#[derive(Debug, Clone, PartialEq)]
+pub struct DayQuote {
     pub regular_price: f64,
     /// Price today's change is measured against
     pub day_change_baseline: f64,
     /// Pre or post market price, if it's more recent than the regular price
     pub extended_price: Option<f64>,
-    pub volume: String,
-    pub bid: Option<Offer>,
-    pub ask: Option<Offer>,
     pub market_state: Option<MarketState>,
+}
+
+impl DayQuote {
+    /// A pre / post market price is a (time, price) pair
+    fn new(
+        market_state: Option<&str>,
+        regular_price: f64,
+        regular_time: Option<i64>,
+        previous_close: f64,
+        pre_market: (Option<i64>, Option<f64>),
+        post_market: (Option<i64>, Option<f64>),
+    ) -> DayQuote {
+        DayQuote {
+            regular_price,
+            day_change_baseline: day_change_baseline(market_state, regular_price, previous_close),
+            extended_price: extended_hours_price(regular_time, [pre_market, post_market]),
+            market_state: market_state.map(MarketState::from_yahoo),
+        }
+    }
+
+    /// `None` if Yahoo's quote lacks the regular price or previous close
+    pub fn from_quote_data(quote: &QuoteData) -> Option<DayQuote> {
+        Some(DayQuote::new(
+            quote.market_state.as_deref(),
+            quote.regular_market_price?,
+            quote.regular_market_time,
+            quote.regular_market_previous_close?,
+            (quote.pre_market_time, quote.pre_market_price),
+            (quote.post_market_time, quote.post_market_price),
+        ))
+    }
+}
+
+impl From<&CompanyPrice> for DayQuote {
+    fn from(price: &CompanyPrice) -> DayQuote {
+        DayQuote::new(
+            price.market_state.as_deref(),
+            price.regular_market_price.price,
+            price.regular_market_time,
+            price.regular_market_previous_close.price,
+            (price.pre_market_time, price.pre_market_price.price),
+            (price.post_market_time, price.post_market_price.price),
+        )
+    }
 }
 
 /// Trading session the market is in
@@ -139,10 +182,10 @@ impl std::hash::Hash for Offer {
 /// Price today's change is measured against: the last session's close until
 /// the market opens (which Yahoo still reports as the regular market price),
 /// the close before it after that. Same as the 1D chart's previous close.
-fn day_change_baseline(price: &CompanyPrice) -> f64 {
-    match price.market_state.as_deref() {
-        Some("PRE" | "PREPRE") => price.regular_market_price.price,
-        _ => price.regular_market_previous_close.price,
+fn day_change_baseline(market_state: Option<&str>, regular_price: f64, previous_close: f64) -> f64 {
+    match market_state {
+        Some("PRE" | "PREPRE") => regular_price,
+        _ => previous_close,
     }
 }
 
@@ -150,18 +193,18 @@ fn day_change_baseline(price: &CompanyPrice) -> f64 {
 /// market price. Yahoo keeps reporting the previous session's post market price
 /// during the next pre market (and both during regular hours), so their times
 /// decide which one is current.
-fn extended_hours_price(price: &CompanyPrice) -> Option<f64> {
-    let regular_time = price.regular_market_time.unwrap_or(i64::MIN);
+fn extended_hours_price(
+    regular_time: Option<i64>,
+    extended: [(Option<i64>, Option<f64>); 2],
+) -> Option<f64> {
+    let regular_time = regular_time.unwrap_or(i64::MIN);
 
-    [
-        (price.pre_market_time, price.pre_market_price.price),
-        (price.post_market_time, price.post_market_price.price),
-    ]
-    .into_iter()
-    .filter_map(|(time, price)| Some((time?, price?)))
-    .filter(|(time, _)| *time > regular_time)
-    .max_by_key(|(time, _)| *time)
-    .map(|(_, price)| price)
+    extended
+        .into_iter()
+        .filter_map(|(time, price)| Some((time?, price?)))
+        .filter(|(time, _)| *time > regular_time)
+        .max_by_key(|(time, _)| *time)
+        .map(|(_, price)| price)
 }
 
 #[cfg(test)]
@@ -187,39 +230,81 @@ mod tests {
         serde_json::from_str(json).unwrap()
     }
 
+    fn extended_price(price: &CompanyPrice) -> Option<f64> {
+        DayQuote::from(price).extended_price
+    }
+
+    fn baseline(price: &CompanyPrice) -> f64 {
+        DayQuote::from(price).day_change_baseline
+    }
+
     #[test]
     fn pre_market_uses_todays_pre_market_price() {
-        assert_eq!(extended_hours_price(&price(PRE_MARKET)), Some(920.0));
+        assert_eq!(extended_price(&price(PRE_MARKET)), Some(920.0));
     }
 
     #[test]
     fn post_market_uses_post_market_price() {
         let json = PRE_MARKET.replace("1792144326", "1792000000");
 
-        assert_eq!(extended_hours_price(&price(&json)), Some(923.018));
+        assert_eq!(extended_price(&price(&json)), Some(923.018));
     }
 
     #[test]
     fn regular_market_ignores_older_extended_prices() {
         let json = PRE_MARKET.replace("1792094401", "1792160000");
 
-        assert_eq!(extended_hours_price(&price(&json)), None);
+        assert_eq!(extended_price(&price(&json)), None);
     }
 
     #[test]
     fn day_change_before_open_is_from_last_close() {
-        assert_eq!(day_change_baseline(&price(PRE_MARKET)), 931.24);
+        assert_eq!(baseline(&price(PRE_MARKET)), 931.24);
 
         let json = PRE_MARKET.replace(r#""PRE""#, r#""PREPRE""#);
-        assert_eq!(day_change_baseline(&price(&json)), 931.24);
+        assert_eq!(baseline(&price(&json)), 931.24);
     }
 
     #[test]
     fn day_change_after_open_is_from_previous_close() {
         for state in ["REGULAR", "POST", "POSTPOST", "CLOSED"] {
             let json = PRE_MARKET.replace(r#""PRE""#, &format!(r#""{}""#, state));
-            assert_eq!(day_change_baseline(&price(&json)), 925.0, "{}", state);
+            assert_eq!(baseline(&price(&json)), 925.0, "{}", state);
         }
+    }
+
+    /// Yahoo's quote endpoint has the same prices, without formatting
+    #[test]
+    fn day_quote_from_quote_data() {
+        let json = r#"{
+            "symbol": "MU",
+            "marketState": "PRE",
+            "preMarketTime": 1792144326,
+            "preMarketPrice": 920.0,
+            "postMarketTime": 1792108794,
+            "postMarketPrice": 923.018,
+            "regularMarketTime": 1792094401,
+            "regularMarketPrice": 931.24,
+            "regularMarketPreviousClose": 925.0,
+            "regularMarketVolume": 1000
+        }"#;
+
+        assert_eq!(
+            DayQuote::from_quote_data(&serde_json::from_str(json).unwrap()),
+            Some(DayQuote {
+                regular_price: 931.24,
+                day_change_baseline: 931.24,
+                extended_price: Some(920.0),
+                market_state: Some(MarketState::Pre),
+            })
+        );
+
+        let json = r#"{"symbol": "MU", "regularMarketPrice": 931.24}"#;
+
+        assert_eq!(
+            DayQuote::from_quote_data(&serde_json::from_str(json).unwrap()),
+            None
+        );
     }
 
     #[test]
@@ -244,7 +329,7 @@ mod tests {
             "regularMarketVolume": {}
         }"#;
 
-        assert_eq!(extended_hours_price(&price(json)), None);
+        assert_eq!(extended_price(&price(json)), None);
     }
 
     fn offer(price: serde_json::Value, size: serde_json::Value) -> Option<Offer> {

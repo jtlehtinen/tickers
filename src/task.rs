@@ -9,12 +9,13 @@ use lazy_static::lazy_static;
 use parking_lot::Mutex;
 use task::JoinHandle;
 
-pub use self::current_price::{CurrentPrice, MarketState, Offer, Quote};
+pub use self::current_price::{CurrentPrice, DayQuote, MarketState, Offer, Quote};
 pub use self::default_timestamps::DefaultTimestamps;
 pub use self::nasdaq_quote::{NasdaqData, NasdaqQuote};
 pub use self::options_data::OptionsData;
 pub use self::options_dates::OptionsDates;
 pub use self::prices::Prices;
+pub use self::tab_quotes::TabQuotes;
 use crate::api::model::CrumbData;
 use crate::api::Unauthorized;
 use crate::{CLIENT, DATA_RECEIVED, UPDATE_INTERVAL};
@@ -25,13 +26,13 @@ mod nasdaq_quote;
 mod options_data;
 mod options_dates;
 mod prices;
+mod tab_quotes;
 
 /// How often one-shot tasks are retried until they succeed
 const ONE_SHOT_RETRY_INTERVAL: Duration = Duration::from_secs(5);
 
-/// How often tasks run in the background, e.g. quotes of stocks in tabs that
-/// aren't shown
-const BACKGROUND_INTERVAL: Duration = Duration::from_secs(15);
+/// How often the quotes of every tab are fetched, for stocks that aren't shown
+const TAB_QUOTES_INTERVAL: Duration = Duration::from_secs(15);
 
 /// Minimum time between attempts to fetch the Yahoo crumb
 const CRUMB_RETRY_INTERVAL: Duration = Duration::from_secs(5);
@@ -128,8 +129,6 @@ pub trait AsyncTask: 'static {
             .unwrap_or(ONE_SHOT_RETRY_INTERVAL)
             .max(Duration::from_secs(*UPDATE_INTERVAL));
 
-        let background_interval = interval.max(BACKGROUND_INTERVAL);
-
         let handle = task::spawn(async move {
             let mut last_updated: Option<Instant> = None;
 
@@ -142,7 +141,7 @@ pub trait AsyncTask: 'static {
 
                 let elapsed = last_updated.map(|last_updated| last_updated.elapsed());
 
-                if command.is_due(elapsed, interval, background_interval) {
+                if command.is_due(elapsed, interval) {
                     let result = <Self as AsyncTask>::task(input.clone()).await;
                     let succeeded = result.is_ok();
 
@@ -176,25 +175,17 @@ pub enum AsyncTaskCommand {
     /// Don't run, not even initially
     Pause,
     Resume,
-    /// Run less often
-    Background,
 }
 
 impl AsyncTaskCommand {
     /// Whether a task following this command should run, given the time since
     /// it last ran (`None` if it hasn't yet). Tasks run as soon as they aren't
     /// paused, then every interval.
-    fn is_due(
-        self,
-        elapsed: Option<Duration>,
-        interval: Duration,
-        background_interval: Duration,
-    ) -> bool {
+    fn is_due(self, elapsed: Option<Duration>, interval: Duration) -> bool {
         match (self, elapsed) {
             (AsyncTaskCommand::Pause, _) => false,
-            (_, None) => true,
+            (AsyncTaskCommand::Resume, None) => true,
             (AsyncTaskCommand::Resume, Some(elapsed)) => elapsed >= interval,
-            (AsyncTaskCommand::Background, Some(elapsed)) => elapsed >= background_interval,
         }
     }
 }
@@ -220,12 +211,6 @@ impl<R> AsyncTaskHandle<R> {
     pub fn resume(&self) {
         let _ = self.command_sender.try_send(AsyncTaskCommand::Resume);
     }
-
-    /// Runs the task every `BACKGROUND_INTERVAL`, for data that's shown even
-    /// when its widget isn't
-    pub fn background(&self) {
-        let _ = self.command_sender.try_send(AsyncTaskCommand::Background);
-    }
 }
 
 impl<R> Drop for AsyncTaskHandle<R> {
@@ -239,11 +224,10 @@ impl<R> Drop for AsyncTaskHandle<R> {
 mod tests {
     use super::*;
 
-    const INTERVAL: Duration = Duration::from_secs(1);
-    const BACKGROUND: Duration = Duration::from_secs(15);
+    const INTERVAL: Duration = Duration::from_secs(15);
 
     fn is_due(command: AsyncTaskCommand, elapsed: Option<u64>) -> bool {
-        command.is_due(elapsed.map(Duration::from_secs), INTERVAL, BACKGROUND)
+        command.is_due(elapsed.map(Duration::from_secs), INTERVAL)
     }
 
     #[test]
@@ -255,15 +239,11 @@ mod tests {
     #[test]
     fn tasks_run_initially_unless_paused() {
         assert!(is_due(AsyncTaskCommand::Resume, None));
-        assert!(is_due(AsyncTaskCommand::Background, None));
     }
 
     #[test]
     fn tasks_run_every_interval() {
-        assert!(!is_due(AsyncTaskCommand::Resume, Some(0)));
-        assert!(is_due(AsyncTaskCommand::Resume, Some(1)));
-
-        assert!(!is_due(AsyncTaskCommand::Background, Some(14)));
-        assert!(is_due(AsyncTaskCommand::Background, Some(15)));
+        assert!(!is_due(AsyncTaskCommand::Resume, Some(14)));
+        assert!(is_due(AsyncTaskCommand::Resume, Some(15)));
     }
 }

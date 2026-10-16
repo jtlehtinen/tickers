@@ -10,6 +10,7 @@ use serde::de::DeserializeOwned;
 
 use crate::model::{
     Chart, ChartData, Company, CompanyData, CrumbData, NasdaqQuoteInfo, Options, OptionsHeader,
+    QuoteData, Quotes,
 };
 use crate::{AssetClass, Interval, Range};
 
@@ -197,6 +198,28 @@ impl Client {
         }
 
         bail!("Failed to get company data for {}", symbol);
+    }
+
+    /// Quotes of many `symbols` with a single request. Symbols Yahoo doesn't
+    /// know are left out.
+    pub async fn get_quotes(
+        &self,
+        symbols: &[String],
+        crumb_data: CrumbData,
+    ) -> Result<Vec<QuoteData>> {
+        let mut params = HashMap::new();
+        params.insert("symbols", symbols.join(","));
+        params.insert("crumb", crumb_data.crumb);
+
+        let url = self.get_url(Version::V7, "finance/quote", Some(params))?;
+
+        let response: Quotes = self.get(url, Some(crumb_data.cookie)).await?;
+
+        if let Some(err) = response.quote_response.error {
+            bail!("Error getting quotes: {}", err.description);
+        }
+
+        Ok(response.quote_response.result.unwrap_or_default())
     }
 
     pub async fn get_options_expiration_dates(
@@ -447,6 +470,34 @@ mod tests {
         let err = client.get_company_data("SPY", crumb).await.unwrap_err();
 
         assert!(err.is::<Unauthorized>(), "{:#}", err);
+    }
+
+    #[async_std::test]
+    #[ignore = "requires network access to Yahoo Finance"]
+    async fn test_quotes() {
+        let client = Client::new();
+
+        let symbols: Vec<_> = ["SPY", "^GSPC", "ES=F", "BTC-USD", "NOKIA.HE", "NOTREAL123"]
+            .into_iter()
+            .map(String::from)
+            .collect();
+
+        let crumb = client.get_crumb().await.unwrap();
+
+        let quotes = client.get_quotes(&symbols, crumb).await.unwrap();
+
+        let mut quoted: Vec<_> = quotes.iter().map(|quote| quote.symbol.clone()).collect();
+        quoted.sort();
+
+        let mut known = symbols[..5].to_vec();
+        known.sort();
+
+        assert_eq!(quoted, known);
+
+        for quote in quotes {
+            assert!(quote.regular_market_price.is_some(), "{:?}", quote);
+            assert!(quote.regular_market_previous_close.is_some(), "{:?}", quote);
+        }
     }
 
     #[async_std::test]
