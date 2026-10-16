@@ -87,12 +87,7 @@ impl App {
         self.tab_sort = Some(sort);
     }
 
-    /// The last applied sort, if the tabs are still in it
-    pub fn current_tab_sort(&self) -> Option<TabSort> {
-        self.tab_sort.filter(|sort| self.tabs_sorted_by(*sort))
-    }
-
-    fn tabs_sorted_by(&self, sort: TabSort) -> bool {
+    pub fn tabs_sorted_by(&self, sort: TabSort) -> bool {
         self.stocks.windows(2).all(|pair| {
             sort.cmp(
                 (pair[0].symbol(), pair[0].day_pct_change()),

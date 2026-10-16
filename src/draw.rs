@@ -128,11 +128,17 @@ fn draw_main(frame: &mut Frame, app: &mut App, area: Rect) {
         .to_vec();
 
     if !app.stocks.is_empty() {
-        let title = match app.current_tab_sort() {
-            Some(sort) => format!(" Tabs {} ", sort.as_str()),
-            None => " Tabs ".to_string(),
-        };
-        frame.render_widget(crate::widget::block::new(&title), layout[1]);
+        let mut title = vec![Span::styled(" Tabs ", style().fg(THEME.text_normal()))];
+        if let Some(sort) = app.tab_sort {
+            // Dimmed once the tabs have moved out of the sort
+            let fg = if app.tabs_sorted_by(sort) {
+                THEME.text_normal()
+            } else {
+                THEME.gray()
+            };
+            title.push(Span::styled(format!("{} ", sort.as_str()), style().fg(fg)));
+        }
+        frame.render_widget(block::with_title(Line::from(title)), layout[1]);
         let padded = add_padding(layout[1], 1, PaddingDirection::All);
         layout[1] = add_padding(padded, 1, PaddingDirection::Left);
 
