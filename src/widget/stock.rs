@@ -208,8 +208,8 @@ impl StockState {
     }
 
     pub fn prices(&self) -> impl Iterator<Item = Price> {
-        let prices = self.prices[self.time_frame.idx()].clone();
-        self.get_matching_prices(&prices).into_iter()
+        self.get_matching_prices(&self.prices[self.time_frame.idx()])
+            .into_iter()
     }
 
     pub fn current_price(&self) -> f64 {
