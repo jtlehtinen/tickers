@@ -12,7 +12,7 @@ use ratatui::widgets::{
 };
 
 use super::{block, CachableWidget, CacheState};
-use crate::api::model::{OptionsData, OptionsQuote};
+use crate::api::model::{OptionsContract, OptionsData, OptionsQuote};
 use crate::draw::{add_padding, PaddingDirection};
 use crate::service::{self, Service};
 use crate::theme::style;
@@ -102,11 +102,22 @@ impl OptionsState {
         }
     }
 
+    /// Calls or puts (depending on the selected type) for the selected date
+    fn selected_range(&self) -> &[OptionsContract] {
+        match (self.data(), self.selected_type) {
+            (Some(data), OptionType::Call) => &data.calls,
+            (Some(data), OptionType::Put) => &data.puts,
+            (None, _) => &[],
+        }
+    }
+
     fn set_selected_as_closest(&mut self) {
-        let selected_range = match self.selected_type {
-            OptionType::Call => &self.data().as_ref().unwrap().calls[..],
-            OptionType::Put => &self.data().as_ref().unwrap().puts[..],
-        };
+        let selected_range = self.selected_range();
+
+        if selected_range.is_empty() {
+            self.selected_option = None;
+            return;
+        }
 
         let market_price = if let Some(ref quote) = self.quote {
             quote.regular_market_price
@@ -155,34 +166,20 @@ impl OptionsState {
     }
 
     pub fn previous_option(&mut self) {
-        if let Some(idx) = self.selected_option {
-            let option_range = if self.selected_type == OptionType::Call {
-                &self.data().as_ref().unwrap().calls[..]
-            } else {
-                &self.data().as_ref().unwrap().puts[..]
-            };
+        let len = self.selected_range().len();
 
-            let new_idx = if idx == 0 {
-                option_range.len() - 1
-            } else {
-                idx - 1
-            };
+        if let (Some(idx), true) = (self.selected_option, len > 0) {
+            let new_idx = if idx == 0 { len - 1 } else { idx - 1 };
 
             self.selected_option = Some(new_idx);
         }
     }
 
     pub fn next_option(&mut self) {
-        if let Some(idx) = self.selected_option {
-            let option_range = if self.selected_type == OptionType::Call {
-                &self.data().as_ref().unwrap().calls[..]
-            } else {
-                &self.data().as_ref().unwrap().puts[..]
-            };
+        let len = self.selected_range().len();
 
-            let new_idx = (idx + 1) % option_range.len();
-
-            self.selected_option = Some(new_idx);
+        if let (Some(idx), true) = (self.selected_option, len > 0) {
+            self.selected_option = Some((idx + 1) % len);
         }
     }
 
@@ -219,8 +216,11 @@ impl OptionsState {
 
                         self.quote = Some(header.quote);
 
-                        self.data
-                            .insert(self.exp_date.unwrap(), header.options.remove(0));
+                        let Some(exp_date) = self.exp_date else {
+                            continue;
+                        };
+
+                        self.data.insert(exp_date, header.options.remove(0));
 
                         if self.selected_option.is_none() {
                             self.set_selected_as_closest();
@@ -435,13 +435,7 @@ impl CachableWidget<OptionsState> for OptionsWidget {
             chunks[1] = add_padding(chunks[1], 1, PaddingDirection::Bottom);
 
             if let Some(idx) = state.selected_option {
-                let option_range = if state.selected_type == OptionType::Call {
-                    &state.data().as_ref().unwrap().calls[..]
-                } else {
-                    &state.data().as_ref().unwrap().puts[..]
-                };
-
-                if let Some(option) = option_range.get(idx) {
+                if let Some(option) = state.selected_range().get(idx) {
                     let mut columns: Vec<Rect> = Layout::default()
                         .direction(Direction::Horizontal)
                         .constraints([Constraint::Length(20), Constraint::Length(20)].as_ref())
