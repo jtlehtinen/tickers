@@ -125,7 +125,7 @@ pub struct Opts {
     /// Hide previous close line on 1D chart
     pub hide_prev_close: bool,
     #[arg(long)]
-    /// Hide toggle block
+    /// Hide toggles next to the time frames
     pub hide_toggle: bool,
     #[arg(long)]
     /// Show volumes graph
@@ -177,7 +177,7 @@ const DEFAULT_CONFIG: &str = "---
 # Hide previous close line on 1D chart
 #hide_prev_close: true
 
-# Hide toggle block
+# Hide toggles next to the time frames
 #hide_toggle: true
 
 # Show volumes graph

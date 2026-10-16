@@ -634,31 +634,16 @@ impl CachableWidget<StockState> for StockWidget {
                 .as_ref()
                 .and_then(|p| p.items.get(&state.symbol));
 
-            // info_chunks layout depends on whether portfolio is shown
+            // info_chunks[0] - Prices / volumes
+            // info_chunks[1] - Portfolio info, if shown
             let mut info_chunks: Vec<Rect> = if show_portfolio.is_some() {
-                // info_chunks[0] - Prices / volumes
-                // info_chunks[1] - Portfolio info
-                // info_chunks[2] - Toggle block
                 Layout::default()
                     .direction(Direction::Horizontal)
-                    .constraints(
-                        [
-                            Constraint::Min(23),
-                            Constraint::Length(25),
-                            Constraint::Length(29),
-                        ]
-                        .as_ref(),
-                    )
+                    .constraints([Constraint::Min(23), Constraint::Length(25)].as_ref())
                     .split(chunks[0])
                     .to_vec()
             } else {
-                // info_chunks[0] - Prices / volumes
-                // info_chunks[1] - Toggle block
-                Layout::default()
-                    .direction(Direction::Horizontal)
-                    .constraints([Constraint::Min(23), Constraint::Length(29)].as_ref())
-                    .split(chunks[0])
-                    .to_vec()
+                vec![chunks[0]]
             };
 
             info_chunks[0] = add_padding(info_chunks[0], 1, PaddingDirection::Top);
@@ -880,107 +865,6 @@ impl CachableWidget<StockState> for StockWidget {
                     .wrap(Wrap { trim: true })
                     .render(portfolio_area, buf);
             }
-
-            if !*HIDE_TOGGLE {
-                let toggle_idx = if show_portfolio.is_some() { 2 } else { 1 };
-                let toggle_block = block::new(" Toggle ");
-                toggle_block.render(info_chunks[toggle_idx], buf);
-
-                info_chunks[toggle_idx] =
-                    add_padding(info_chunks[toggle_idx], 1, PaddingDirection::All);
-                info_chunks[toggle_idx] =
-                    add_padding(info_chunks[toggle_idx], 1, PaddingDirection::Left);
-
-                let toggle_chunks: Vec<Rect> = Layout::default()
-                    .direction(Direction::Horizontal)
-                    .constraints([
-                        Constraint::Length(12),
-                        Constraint::Length(2),
-                        Constraint::Length(12),
-                    ])
-                    .split(info_chunks[toggle_idx])
-                    .to_vec();
-
-                let mut left_info = vec![Line::from(Span::styled("Summary  's'", style()))];
-                let mut right_info = vec![];
-
-                if loaded {
-                    left_info.push(Line::from(Span::styled(
-                        // We're calling toggle() since that returns the next chart type
-                        format!("{: <8} 'c'", chart_type.toggle().as_str()),
-                        style(),
-                    )));
-
-                    left_info.push(Line::from(Span::styled(
-                        "Volumes  'v'",
-                        style()
-                            .bg(if show_volumes {
-                                THEME.highlight_unfocused()
-                            } else {
-                                THEME.background()
-                            })
-                            .fg(if chart_type == ChartType::Kagi {
-                                THEME.gray()
-                            } else {
-                                THEME.text_normal()
-                            }),
-                    )));
-
-                    left_info.push(Line::from(Span::styled(
-                        "Date     'x'",
-                        style().bg(if show_x_labels {
-                            THEME.highlight_unfocused()
-                        } else {
-                            THEME.background()
-                        }),
-                    )));
-
-                    right_info.push(Line::from(Span::styled(
-                        "Pre Post 'p'",
-                        style().bg(if enable_pre_post {
-                            THEME.highlight_unfocused()
-                        } else {
-                            THEME.background()
-                        }),
-                    )));
-
-                    right_info.push(Line::from(Span::styled(
-                        "Edit     'e'",
-                        style()
-                            .bg(if state.show_configure {
-                                THEME.highlight_unfocused()
-                            } else {
-                                THEME.background()
-                            })
-                            .fg(if state.configure_enabled() {
-                                THEME.text_normal()
-                            } else {
-                                THEME.gray()
-                            }),
-                    )));
-                }
-
-                if state.options_enabled() && loaded {
-                    right_info.push(Line::from(Span::styled(
-                        "Options  'o'",
-                        style().bg(if state.show_options {
-                            THEME.highlight_unfocused()
-                        } else {
-                            THEME.background()
-                        }),
-                    )));
-                }
-
-                Paragraph::new(left_info)
-                    .style(style().fg(THEME.text_normal()))
-                    .alignment(Alignment::Left)
-                    .render(toggle_chunks[0], buf);
-
-                Paragraph::new(right_info)
-                    .style(style().fg(THEME.text_normal()))
-                    .alignment(Alignment::Left)
-                    .render(toggle_chunks[2], buf);
-            }
         }
 
         // graph_chunks[0] = prices
@@ -1071,28 +955,55 @@ impl CachableWidget<StockState> for StockWidget {
                 .render(chunks[2], buf);
             chunks[2] = add_padding(chunks[2], 1, PaddingDirection::Top);
 
+            let tab_names = TimeFrame::tab_names();
+
+            // Each tab is padded by a space on both sides, with a divider between tabs
+            let tabs_width = tab_names.iter().map(|name| name.width() + 2).sum::<usize>()
+                + tab_names.len().saturating_sub(1);
+
             // layout[0] - timeframe
-            // layout[1] - scroll indicators
+            // layout[1] - toggles
+            // layout[2] - scroll indicators
             let layout: Vec<Rect> = Layout::default()
                 .direction(Direction::Horizontal)
-                .constraints(if state.chart_state.is_some() {
-                    [Constraint::Min(0), Constraint::Length(3)].as_ref()
-                } else {
-                    [Constraint::Min(0)].as_ref()
-                })
+                .constraints([
+                    Constraint::Length(tabs_width as u16),
+                    Constraint::Min(0),
+                    Constraint::Length(if state.chart_state.is_some() { 3 } else { 0 }),
+                ])
                 .split(chunks[2])
                 .to_vec();
 
-            let tab_names = TimeFrame::tab_names()
-                .iter()
-                .map(|s| Line::from(*s))
-                .collect();
+            let tab_names = tab_names.iter().map(|s| Line::from(*s)).collect();
 
             Tabs::new(tab_names)
                 .select(state.time_frame.idx())
                 .style(style().fg(THEME.text_secondary()))
                 .highlight_style(style().fg(THEME.text_primary()))
                 .render(layout[0], buf);
+
+            if !*HIDE_TOGGLE && loaded {
+                let toggles = [
+                    Some((format!("{} 'c'", chart_type.as_str()), false)),
+                    (chart_type != ChartType::Kagi).then(|| ("Volumes 'v'".into(), show_volumes)),
+                    Some(("Date 'x'".into(), show_x_labels)),
+                    Some(("Pre/Post 'p'".into(), enable_pre_post)),
+                    state
+                        .configure_enabled()
+                        .then(|| ("Edit 'e'".into(), state.show_configure)),
+                    state
+                        .options_enabled()
+                        .then(|| ("Options 'o'".into(), state.show_options)),
+                    Some(("Summary 's'".into(), false)),
+                ];
+
+                // Keep a gap after the time frame tabs
+                let width = layout[1].width.saturating_sub(2);
+
+                Paragraph::new(toggles_line(toggles.into_iter().flatten(), width))
+                    .alignment(Alignment::Right)
+                    .render(layout[1], buf);
+            }
 
             if let Some(chart_state) = state.chart_state.as_ref() {
                 let more_left = chart_state.offset.unwrap_or_default()
@@ -1117,7 +1028,7 @@ impl CachableWidget<StockState> for StockWidget {
                 );
 
                 Paragraph::new(Line::from(vec![left_arrow, Span::raw(" "), right_arrow]))
-                    .render(layout[1], buf);
+                    .render(layout[2], buf);
             }
         }
     }
@@ -1195,6 +1106,37 @@ fn truncate_title(title: &str, max_width: usize) -> String {
     let fill = " ".repeat(available - trimmed.width());
 
     format!("{trimmed}...{fill}")
+}
+
+/// The toggles, as their label and whether they're on, that fit in `width`.
+/// Toggles that don't fit are left out, starting from the last one.
+fn toggles_line<'a>(toggles: impl Iterator<Item = (String, bool)>, width: u16) -> Line<'a> {
+    let mut spans = vec![];
+    let mut used = 0;
+
+    for (label, on) in toggles {
+        let gap = if spans.is_empty() { 0 } else { 2 };
+        let label_width = label.width() + gap;
+
+        if used + label_width > width as usize {
+            break;
+        }
+        used += label_width;
+
+        if gap > 0 {
+            spans.push(Span::raw("  "));
+        }
+        spans.push(Span::styled(
+            label,
+            style().fg(THEME.text_normal()).bg(if on {
+                THEME.highlight_unfocused()
+            } else {
+                THEME.background()
+            }),
+        ));
+    }
+
+    Line::from(spans)
 }
 
 /// Nasdaq asset class of a Yahoo symbol, if Nasdaq has data for it (US stocks

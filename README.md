@@ -63,7 +63,7 @@ Options:
       --hide-prev-close
           Hide previous close line on 1D chart
       --hide-toggle
-          Hide toggle block
+          Hide toggles next to the time frames
       --show-volumes
           Show volumes graph
   -x, --show-x-labels
