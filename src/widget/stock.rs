@@ -16,6 +16,7 @@ use crate::api::model::{ChartMeta, CompanyData};
 use crate::common::*;
 use crate::draw::{add_padding, PaddingDirection};
 use crate::service::{self, Service};
+use crate::task::Offer;
 use crate::theme::style;
 use crate::{
     DEFAULT_TIMESTAMPS, ENABLE_PRE_POST, HIDE_PREV_CLOSE, HIDE_TOGGLE, OPTS, SHOW_VOLUMES,
@@ -34,6 +35,8 @@ pub struct StockState {
     pub current_extended_price: Option<f64>,
     pub prev_close_price: Option<f64>,
     pub reg_mkt_volume: Option<String>,
+    pub bid: Option<Offer>,
+    pub ask: Option<Offer>,
     pub prices: [Vec<Price>; 7],
     pub time_frame: TimeFrame,
     pub show_options: bool,
@@ -59,6 +62,8 @@ impl Hash for StockState {
         self.current_extended_price.map(|f| f.to_bits()).hash(state);
         self.prev_close_price.map(|f| f.to_bits()).hash(state);
         self.reg_mkt_volume.hash(state);
+        self.bid.hash(state);
+        self.ask.hash(state);
         self.prices.hash(state);
         self.time_frame.hash(state);
         self.show_options.hash(state);
@@ -101,6 +106,8 @@ impl StockState {
             current_extended_price: None,
             prev_close_price: None,
             reg_mkt_volume: None,
+            bid: None,
+            ask: None,
             prices: [vec![], vec![], vec![], vec![], vec![], vec![], vec![]],
             time_frame,
             show_options: false,
@@ -226,11 +233,13 @@ impl StockState {
 
         for update in updates {
             match update {
-                service::stock::Update::NewPrice((regular, extended, vol)) => {
+                service::stock::Update::NewPrice(quote) => {
                     self.current_price_error = None;
-                    self.current_regular_price = regular;
-                    self.current_extended_price = extended;
-                    self.reg_mkt_volume = Some(vol);
+                    self.current_regular_price = quote.regular_price;
+                    self.current_extended_price = quote.extended_price;
+                    self.reg_mkt_volume = Some(quote.volume);
+                    self.bid = quote.bid;
+                    self.ask = quote.ask;
                 }
                 service::stock::Update::Prices((time_frame, chart_meta, prices)) => {
                     self.prices_error = None;
@@ -585,7 +594,7 @@ impl CachableWidget<StockState> for StockWidget {
         let mut chunks: Vec<Rect> = Layout::default()
             .constraints(
                 [
-                    Constraint::Length(8),
+                    Constraint::Length(9),
                     Constraint::Min(0),
                     Constraint::Length(2),
                 ]
@@ -752,6 +761,7 @@ impl CachableWidget<StockState> for StockWidget {
                             }),
                     ),
                 ]),
+                offers_line(state.bid.as_ref(), state.ask.as_ref(), currency, loaded),
                 Line::default(),
                 Line::from(vec![
                     Span::styled("Volume: ", style()),
@@ -1145,6 +1155,34 @@ fn truncate_title(title: &str, max_width: usize) -> String {
     let fill = " ".repeat(available - trimmed.width());
 
     format!("{trimmed}...{fill}")
+}
+
+/// Line showing the bid and ask as "Bid: USD6.33 × 100  Ask: USD7.51 × 200"
+fn offers_line<'a>(
+    bid: Option<&Offer>,
+    ask: Option<&Offer>,
+    currency: &str,
+    loaded: bool,
+) -> Line<'a> {
+    let format_offer = |offer: Option<&Offer>| match offer {
+        _ if !loaded => "".to_string(),
+        Some(offer) => {
+            let price = format!("{}{}", currency, format_decimals(offer.price));
+
+            match &offer.size {
+                Some(size) => format!("{} × {}", price, size),
+                None => price,
+            }
+        }
+        None => "-".to_string(),
+    };
+
+    Line::from(vec![
+        Span::styled("Bid: ", style()),
+        Span::styled(format_offer(bid), style().fg(THEME.profit())),
+        Span::styled("  Ask: ", style()),
+        Span::styled(format_offer(ask), style().fg(THEME.loss())),
+    ])
 }
 
 #[cfg(test)]

@@ -2,9 +2,9 @@ use async_std::sync::Arc;
 use futures::future::BoxFuture;
 
 use super::*;
-use crate::api::model::CompanyPrice;
+use crate::api::model::{CompanyPrice, OptionalCompanyMarketPrice};
 
-/// Returns the current price, only if it has changed
+/// Returns the current quote, only if it has changed
 pub struct CurrentPrice {
     symbol: String,
 }
@@ -17,7 +17,7 @@ impl CurrentPrice {
 
 impl AsyncTask for CurrentPrice {
     type Input = String;
-    type Response = (f64, Option<f64>, String);
+    type Response = Quote;
 
     fn update_interval(&self) -> Option<Duration> {
         Some(Duration::from_secs(1))
@@ -35,14 +35,58 @@ impl AsyncTask for CurrentPrice {
 
             let response = check_crumb(crate::CLIENT.get_company_data(symbol, crumb).await).await?;
 
-            let regular_price = response.price.regular_market_price.price;
+            let detail = response.summary_detail.as_ref();
 
-            let extended_price = extended_hours_price(&response.price);
-
-            let volume = response.price.regular_market_volume.fmt.unwrap_or_default();
-
-            Ok((regular_price, extended_price, volume))
+            Ok(Quote {
+                regular_price: response.price.regular_market_price.price,
+                extended_price: extended_hours_price(&response.price),
+                volume: response.price.regular_market_volume.fmt.unwrap_or_default(),
+                bid: detail.and_then(|d| Offer::new(d.bid.as_ref(), d.bid_size.as_ref())),
+                ask: detail.and_then(|d| Offer::new(d.ask.as_ref(), d.ask_size.as_ref())),
+            })
         })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Quote {
+    pub regular_price: f64,
+    /// Pre or post market price, if it's more recent than the regular price
+    pub extended_price: Option<f64>,
+    pub volume: String,
+    pub bid: Option<Offer>,
+    pub ask: Option<Offer>,
+}
+
+/// Best bid or ask
+#[derive(Debug, Clone, PartialEq)]
+pub struct Offer {
+    pub price: f64,
+    /// Formatted number of shares, if known
+    pub size: Option<String>,
+}
+
+impl Offer {
+    /// Yahoo reports a price of 0 when there's no bid / ask, and a size of 0
+    /// when it's unknown (e.g. indices, non US exchanges)
+    fn new(
+        price: Option<&OptionalCompanyMarketPrice>,
+        size: Option<&OptionalCompanyMarketPrice>,
+    ) -> Option<Offer> {
+        let price = price?.price.filter(|price| *price > 0.0)?;
+
+        let size = size
+            .filter(|size| size.price.is_some_and(|size| size > 0.0))
+            .and_then(|size| size.fmt.clone());
+
+        Some(Offer { price, size })
+    }
+}
+
+impl std::hash::Hash for Offer {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.price.to_bits().hash(state);
+        self.size.hash(state);
     }
 }
 
@@ -119,5 +163,57 @@ mod tests {
         }"#;
 
         assert_eq!(extended_hours_price(&price(json)), None);
+    }
+
+    fn offer(price: serde_json::Value, size: serde_json::Value) -> Option<Offer> {
+        let price = serde_json::from_value(price).unwrap();
+        let size = serde_json::from_value(size).unwrap();
+
+        Offer::new(Some(&price), Some(&size))
+    }
+
+    #[test]
+    fn offer_with_size() {
+        assert_eq!(
+            offer(
+                serde_json::json!({"raw": 4204.7, "fmt": "4,204.70"}),
+                serde_json::json!({"raw": 1400, "fmt": "1.4k", "longFmt": "1,400"}),
+            ),
+            Some(Offer {
+                price: 4204.7,
+                size: Some("1.4k".to_string()),
+            })
+        );
+    }
+
+    #[test]
+    fn offer_without_size() {
+        // ^GSPC, NOKIA.HE, ...
+        assert_eq!(
+            offer(
+                serde_json::json!({"raw": 8.716, "fmt": "8.72"}),
+                serde_json::json!({"raw": 0, "fmt": null, "longFmt": "0"}),
+            ),
+            Some(Offer {
+                price: 8.716,
+                size: None,
+            })
+        );
+    }
+
+    #[test]
+    fn no_offer() {
+        // SPY in pre market
+        assert_eq!(
+            offer(
+                serde_json::json!({"raw": 0.0, "fmt": "0.00"}),
+                serde_json::json!({"raw": 8000, "fmt": "8k", "longFmt": "8,000"}),
+            ),
+            None
+        );
+
+        // BTC-USD
+        assert_eq!(offer(serde_json::json!({}), serde_json::json!({})), None);
+        assert_eq!(Offer::new(None, None), None);
     }
 }

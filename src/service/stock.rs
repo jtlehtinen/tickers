@@ -5,7 +5,7 @@ use crate::task::*;
 
 pub struct StockService {
     symbol: String,
-    current_price_handle: AsyncTaskHandle<(f64, Option<f64>, String)>,
+    current_price_handle: AsyncTaskHandle<Quote>,
     prices_handle: AsyncTaskHandle<(TimeFrame, ChartMeta, Vec<Price>)>,
     company_handle: AsyncTaskHandle<CompanyData>,
 }
@@ -39,7 +39,7 @@ impl StockService {
 
 #[derive(Debug)]
 pub enum Update {
-    NewPrice((f64, Option<f64>, String)),
+    NewPrice(Quote),
     Prices((TimeFrame, ChartMeta, Vec<Price>)),
     CompanyData(Box<CompanyData>),
     CurrentPriceError(String),

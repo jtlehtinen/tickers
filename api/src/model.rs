@@ -136,6 +136,10 @@ pub struct SummaryDetail {
     pub market_cap: Option<OptionalCompanyMarketPrice>,
     #[serde(rename = "averageVolume")]
     pub average_volume: Option<OptionalCompanyMarketPrice>,
+    pub bid: Option<OptionalCompanyMarketPrice>,
+    pub bid_size: Option<OptionalCompanyMarketPrice>,
+    pub ask: Option<OptionalCompanyMarketPrice>,
+    pub ask_size: Option<OptionalCompanyMarketPrice>,
 }
 
 #[derive(Debug, Deserialize, Clone, Hash)]
