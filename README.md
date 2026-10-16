@@ -1,88 +1,36 @@
 # tick-rs
 
-[![Actions Status](https://github.com/tarkah/tickrs/workflows/Test/badge.svg)](https://github.com/tarkah/tickrs/actions)
-
 Realtime ticker data in your terminal 📈 Built with Rust. Data sourced from Yahoo! Finance.
 
-  - [Installation](#installation)
-  - [Config File](#config-file)
-  - [CLI Usage](#cli-usage)
-    - [Windows](#windows)
-  - [Acknowledgments](#acknowledgments)
+> [!NOTE]
+> This is a fork of [tarkah/tickrs](https://github.com/tarkah/tickrs) that has diverged
+> considerably from the original. It is not published to crates.io or any package manager.
 
-<img src="./assets/demo.gif">
+![tickrs showing a 1D candle chart with volumes and a sidebar of stock tabs](./assets/shot.png)
 
 ## Installation
 
-### Binary
-
-Download the latest [release](https://github.com/tarkah/tickrs/releases/latest) for your platform
-
-### Cargo
+Clone the repository and build it:
 
 ```
-cargo install tickrs
+git clone https://github.com/jtlehtinen/tickrs
+cd tickrs
+cargo build --release
 ```
 
-### Arch Linux
-
-```
-pacman -S tickrs
-```
-
-### Homebrew
-
-```
-brew tap tarkah/tickrs
-brew install tickrs
-```
+The binary is at `target/release/tickrs`.
 
 ## Config File
 
-See [wiki entry](https://github.com/tarkah/tickrs/wiki/Config-file)
+On first run, tickrs writes a commented default config to `tickrs/config.yml` in your
+platform's config directory:
 
-## CLI Usage
+- Linux: `~/.config/tickrs/config.yml`
+- macOS: `~/Library/Application Support/tickrs/config.yml`
+- Windows: `%APPDATA%\tickrs\config.yml`
 
-```
-Realtime ticker data in your terminal 📈
-
-Usage: tickrs [OPTIONS]
-
-Options:
-  -c, --chart-type <CHART_TYPE>
-          Chart type to start app with [default: line] [possible values: line, candle, kagi]
-  -s, --symbols <SYMBOLS>...
-          Comma separated list of ticker symbols to start app with
-  -t, --time-frame <TIME_FRAME>
-          Use specified time frame when starting program and when new stocks are added [default: 1D] [possible values: 1D, 1W, 1M, 3M, 6M, 1Y, 5Y]
-  -i, --update-interval <UPDATE_INTERVAL>
-          Interval to update data from API (seconds) [default: 1]
-  -p, --enable-pre-post
-          Enable pre / post market hours for graphs
-      --hide-help
-          Hide help icon in top right
-      --hide-prev-close
-          Hide previous close line on 1D chart
-      --hide-toggle
-          Hide toggles next to the time frames
-      --show-volumes
-          Show volumes graph
-  -x, --show-x-labels
-          Show x-axis labels
-      --summary
-          Start in summary mode
-      --trunc-pre
-          Truncate pre market graphing to only 30 minutes prior to markets opening
-  -h, --help
-          Print help
-  -V, --version
-          Print version
-```
-
-### Windows
-
-Use [Windows Terminal](https://www.microsoft.com/en-us/p/windows-terminal-preview/9n0dx20hk701) to properly display this app.
+It accepts the same options as the command line; run `tickrs --help` to list them.
 
 ## Acknowledgments
-- [fdehau](https://github.com/fdehau) / [tui-rs](https://github.com/fdehau/tui-rs) - great TUI library for Rust
+- [ratatui](https://github.com/ratatui/ratatui) - TUI library for Rust, and [fdehau](https://github.com/fdehau) / [tui-rs](https://github.com/fdehau/tui-rs) before it
 - [cjbassi](https://github.com/cjbassi) / [ytop](https://github.com/cjbassi/ytop) - thanks for the inspiration!
