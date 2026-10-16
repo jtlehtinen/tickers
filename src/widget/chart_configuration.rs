@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
 
-use crossterm::terminal;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::text::{Line, Span};
@@ -469,14 +468,14 @@ fn render_kagi_options(mut area: Rect, buf: &mut Buffer, state: &ChartConfigurat
 
     // Set "cursor" color
     if matches!(state.selection, Some(KagiSelection::ReversalValue)) {
-        let size = terminal::size().unwrap_or((0, 0));
+        let x = layout[2]
+            .left()
+            .saturating_add(state.input.kagi_reversal_value.len().min(20) as u16);
+        let y = layout[2].top().saturating_add(5);
 
-        let x = layout[2].left() as usize + state.input.kagi_reversal_value.len().min(20);
-        let y = layout[2].top() as usize + 5;
-        let idx = y * size.0 as usize + x;
-
-        if let Some(cell) = buf.content.get_mut(idx) {
-            cell.bg = THEME.text_secondary();
+        let area = buf.area;
+        if (area.left()..area.right()).contains(&x) && (area.top()..area.bottom()).contains(&y) {
+            buf.get_mut(x, y).bg = THEME.text_secondary();
         }
     }
 }
