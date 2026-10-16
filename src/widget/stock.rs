@@ -2,7 +2,7 @@ use std::hash::{Hash, Hasher};
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
-use ratatui::style::Modifier;
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, StatefulWidget, Tabs, Widget, Wrap};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
@@ -691,7 +691,7 @@ impl CachableWidget<StockState> for StockWidget {
 
             let company_info = vec![
                 Line::from(vec![
-                    Span::styled("C: ", style()),
+                    Span::styled("Last: ", label_style()),
                     Span::styled(
                         if loaded {
                             format_money(currency, &current_fmt, price_width)
@@ -725,14 +725,14 @@ impl CachableWidget<StockState> for StockWidget {
                     market_state_span(state.market_state.filter(|_| loaded)),
                 ]),
                 Line::from(vec![
-                    Span::styled("H: ", style()),
+                    Span::styled("High: ", label_style()),
                     Span::styled(
                         if loaded {
                             format_money(currency, &high_fmt, price_width)
                         } else {
                             "".to_string()
                         },
-                        style().fg(THEME.text_secondary()),
+                        style().fg(THEME.text_normal()),
                     ),
                     Span::styled(
                         if loaded {
@@ -752,14 +752,14 @@ impl CachableWidget<StockState> for StockWidget {
                     ),
                 ]),
                 Line::from(vec![
-                    Span::styled("L: ", style()),
+                    Span::styled("Low:  ", label_style()),
                     Span::styled(
                         if loaded {
                             format_money(currency, &low_fmt, price_width)
                         } else {
                             "".to_string()
                         },
-                        style().fg(THEME.text_secondary()),
+                        style().fg(THEME.text_normal()),
                     ),
                     Span::styled(
                         if loaded {
@@ -781,32 +781,32 @@ impl CachableWidget<StockState> for StockWidget {
                 offers_line(state.bid.as_ref(), state.ask.as_ref(), currency, loaded),
                 Line::default(),
                 Line::from(vec![
-                    Span::styled("Volume: ", style()),
+                    Span::styled("Volume:  ", label_style()),
                     Span::styled(
                         if loaded { vol } else { "".to_string() },
-                        style().fg(THEME.text_secondary()),
+                        style().fg(THEME.text_normal()),
                     ),
                 ]),
                 Line::from(vec![
-                    Span::styled("Avg Vol: ", style()),
+                    Span::styled("Avg Vol: ", label_style()),
                     Span::styled(
                         if loaded {
                             avg_volume.unwrap_or_default()
                         } else {
                             "".to_string()
                         },
-                        style().fg(THEME.text_secondary()),
+                        style().fg(THEME.text_normal()),
                     ),
                 ]),
                 Line::from(vec![
-                    Span::styled("Mkt Cap: ", style()),
+                    Span::styled("Mkt Cap: ", label_style()),
                     Span::styled(
                         if loaded {
                             market_cap.unwrap_or_default()
                         } else {
                             "".to_string()
                         },
-                        style().fg(THEME.text_secondary()),
+                        style().fg(THEME.text_normal()),
                     ),
                 ]),
             ];
@@ -833,21 +833,21 @@ impl CachableWidget<StockState> for StockWidget {
 
                 let portfolio_info = vec![
                     Line::from(vec![
-                        Span::styled("Qty: ", style().fg(THEME.text_normal())),
+                        Span::styled("Qty: ", label_style()),
                         Span::styled(
                             format_decimals(portfolio_item.quantity),
-                            style().fg(THEME.text_secondary()),
+                            style().fg(THEME.text_normal()),
                         ),
                     ]),
                     Line::from(vec![
-                        Span::styled("Avg: ", style().fg(THEME.text_normal())),
+                        Span::styled("Avg: ", label_style()),
                         Span::styled(
                             format_price(portfolio_item.average_price),
-                            style().fg(THEME.text_secondary()),
+                            style().fg(THEME.text_normal()),
                         ),
                     ]),
                     Line::from(vec![
-                        Span::styled("P/L: ", style()),
+                        Span::styled("P/L: ", label_style()),
                         Span::styled(
                             format_price(profit_loss),
                             style().add_modifier(Modifier::BOLD).fg(profit_loss_color),
@@ -1169,7 +1169,22 @@ fn market_state_span<'a>(market_state: Option<MarketState>) -> Span<'a> {
     }
 }
 
-/// Line showing the bid and ask as "Bid: $6.33 × 100  Ask: $7.51 × 200"
+/// Style of the labels in front of values, e.g. "High:"
+pub fn label_style() -> Style {
+    style().fg(THEME.gray())
+}
+
+/// Difference between the `ask` and `bid` prices, and as a fraction of their
+/// midpoint
+fn spread(bid: f64, ask: f64) -> (f64, f64) {
+    let spread = ask - bid;
+    let mid = (ask + bid) / 2.0;
+
+    (spread, if mid > 0.0 { spread / mid } else { 0.0 })
+}
+
+/// Line showing the bid, ask and their spread as
+/// "Bid:  $6.33 × 100  Ask: $7.51 × 200  Spread: $1.18 (17.04%)"
 fn offers_line<'a>(
     bid: Option<&Offer>,
     ask: Option<&Offer>,
@@ -1189,19 +1204,36 @@ fn offers_line<'a>(
         None => "-".to_string(),
     };
 
-    Line::from(vec![
-        Span::styled("Bid: ", style()),
+    let mut spans = vec![
+        Span::styled("Bid:  ", label_style()),
         Span::styled(format_offer(bid), style().fg(THEME.profit())),
-        Span::styled("  Ask: ", style()),
+        Span::styled("  Ask: ", label_style()),
         Span::styled(format_offer(ask), style().fg(THEME.loss())),
-    ])
+    ];
+
+    if let (Some(bid), Some(ask), true) = (bid, ask, loaded) {
+        let (spread, pct) = spread(bid.price, ask.price);
+        let spread = format!("{:.*}", price_decimals(ask.price), spread);
+
+        spans.push(Span::styled("  Spread: ", label_style()));
+        spans.push(Span::styled(
+            format!(
+                "{} ({:.2}%)",
+                format_money(currency, &spread, 0),
+                pct * 100.0
+            ),
+            style().fg(THEME.text_normal()),
+        ));
+    }
+
+    Line::from(spans)
 }
 
 #[cfg(test)]
 mod tests {
     use unicode_width::UnicodeWidthStr;
 
-    use super::{nasdaq_asset_class, truncate_title};
+    use super::{nasdaq_asset_class, spread, truncate_title};
     use crate::api::AssetClass;
 
     #[test]
@@ -1271,5 +1303,18 @@ mod tests {
         assert_eq!(nasdaq_asset_class("BTC-USD", Some("CRYPTOCURRENCY")), None);
         assert_eq!(nasdaq_asset_class("ES=F", Some("FUTURE")), None);
         assert_eq!(nasdaq_asset_class("MU", None), None);
+    }
+
+    #[test]
+    fn spread_is_relative_to_the_midpoint() {
+        let (spread, pct) = spread(900.0, 924.96);
+
+        assert!((spread - 24.96).abs() < 1e-9);
+        assert!((pct - 0.027_355).abs() < 1e-6, "{}", pct);
+    }
+
+    #[test]
+    fn spread_without_prices() {
+        assert_eq!(spread(0.0, 0.0), (0.0, 0.0));
     }
 }

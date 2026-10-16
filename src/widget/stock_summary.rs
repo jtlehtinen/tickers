@@ -7,7 +7,7 @@ use ratatui::widgets::{Block, Borders, Paragraph, StatefulWidget, Widget};
 use super::chart::{
     PricesCandlestickChart, PricesKagiChart, PricesLineChart, VolumeBarChart, XAxis,
 };
-use super::stock::StockState;
+use super::stock::{label_style, StockState};
 use super::{CachableWidget, CacheState};
 use crate::common::{format_money, format_price, ChartType, TimeFrame};
 use crate::draw::{add_padding, PaddingDirection};
@@ -92,7 +92,7 @@ impl CachableWidget<StockState> for StockSummaryWidget {
 
             let prices = vec![
                 Line::from(vec![
-                    Span::styled("C: ", style().fg(THEME.text_normal())),
+                    Span::styled("C: ", label_style()),
                     Span::styled(
                         if loaded {
                             format_money(currency, &current_fmt, price_width)
@@ -105,14 +105,14 @@ impl CachableWidget<StockState> for StockSummaryWidget {
                     ),
                 ]),
                 Line::from(vec![
-                    Span::styled("H: ", style().fg(THEME.text_normal())),
+                    Span::styled("H: ", label_style()),
                     Span::styled(
                         if loaded {
                             format_money(currency, &high_fmt, price_width)
                         } else {
                             "".to_string()
                         },
-                        style().fg(THEME.text_secondary()),
+                        style().fg(THEME.text_normal()),
                     ),
                     Span::styled(
                         if loaded {
@@ -132,14 +132,14 @@ impl CachableWidget<StockState> for StockSummaryWidget {
                     ),
                 ]),
                 Line::from(vec![
-                    Span::styled("L: ", style().fg(THEME.text_normal())),
+                    Span::styled("L: ", label_style()),
                     Span::styled(
                         if loaded {
                             format_money(currency, &low_fmt, price_width)
                         } else {
                             "".to_string()
                         },
-                        style().fg(THEME.text_secondary()),
+                        style().fg(THEME.text_normal()),
                     ),
                     Span::styled(
                         if loaded {
@@ -160,10 +160,10 @@ impl CachableWidget<StockState> for StockSummaryWidget {
                 ]),
                 Line::default(),
                 Line::from(vec![
-                    Span::styled("Volume: ", style().fg(THEME.text_normal())),
+                    Span::styled("Volume: ", label_style()),
                     Span::styled(
                         if loaded { vol } else { "".to_string() },
-                        style().fg(THEME.text_secondary()),
+                        style().fg(THEME.text_normal()),
                     ),
                 ]),
             ];
