@@ -215,26 +215,41 @@ fn setup_terminal() {
     terminal::enable_raw_mode().unwrap();
 }
 
+/// Restores the terminal. This is best effort since it also runs from the
+/// panic hook, where panicking again would abort the process.
 fn cleanup_terminal() {
     let mut stdout = io::stdout();
 
     if DEBUG_LEVEL.debug_mouse {
-        execute!(stdout, crossterm::event::DisableMouseCapture).unwrap();
+        let _ = execute!(stdout, crossterm::event::DisableMouseCapture);
     }
 
-    execute!(stdout, cursor::MoveTo(0, 0)).unwrap();
-    execute!(stdout, terminal::Clear(terminal::ClearType::All)).unwrap();
+    let _ = execute!(stdout, cursor::MoveTo(0, 0));
+    let _ = execute!(stdout, terminal::Clear(terminal::ClearType::All));
 
-    execute!(stdout, terminal::LeaveAlternateScreen).unwrap();
-    execute!(stdout, cursor::Show).unwrap();
+    let _ = execute!(stdout, terminal::LeaveAlternateScreen);
+    let _ = execute!(stdout, cursor::Show);
 
-    terminal::disable_raw_mode().unwrap();
+    let _ = terminal::disable_raw_mode();
 }
 
 fn setup_ui_events() -> Receiver<Event> {
     let (sender, receiver) = unbounded();
     std::thread::spawn(move || loop {
-        sender.send(crossterm::event::read().unwrap()).unwrap();
+        match crossterm::event::read() {
+            Ok(event) => {
+                if sender.send(event).is_err() {
+                    break;
+                }
+            }
+            // Without input the app can't be used or exited, so bail out
+            // rather than leaving the main loop spinning on a closed channel
+            Err(e) => {
+                cleanup_terminal();
+                eprintln!("Failed to read terminal input: {e}");
+                std::process::exit(1);
+            }
+        }
     });
 
     receiver
@@ -244,6 +259,10 @@ fn setup_panic_hook() {
     panic::set_hook(Box::new(|panic_info| {
         cleanup_terminal();
         better_panic::Settings::auto().create_panic_handler()(panic_info);
+
+        // Panics on the redraw or input threads would otherwise leave the main
+        // thread running with a restored (non raw) terminal and nothing drawn
+        std::process::exit(1);
     }));
 }
 
