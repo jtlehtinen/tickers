@@ -38,7 +38,8 @@ impl StatefulWidget for PricesLineChart<'_> {
             area = add_padding(area, 1, PaddingDirection::Top);
         }
 
-        let (min, max) = state.min_max(self.data);
+        // Only closes are drawn, so highs and lows don't need to be in range
+        let (min, max) = state.chart_bounds(self.data, false);
         let x_bounds = self.x_axis.bounds();
 
         let mut prices: Vec<_> = self.data.iter().map(cast_historical_as_price).collect();

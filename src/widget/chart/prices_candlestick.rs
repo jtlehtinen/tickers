@@ -3,7 +3,7 @@ use ratatui::layout::Rect;
 use ratatui::widgets::canvas::{Canvas, Line, Rectangle};
 use ratatui::widgets::{Block, Borders, StatefulWidget, Widget};
 
-use super::x_axis::{render_session_bounds, render_ticks, ChartAreas, XAxis};
+use super::x_axis::{column, render_session_bounds, render_ticks, ChartAreas, XAxis};
 use super::y_axis::render_y_labels;
 use crate::common::{Price, TimeFrame};
 use crate::draw::{add_padding, PaddingDirection};
@@ -44,7 +44,7 @@ impl StatefulWidget for PricesCandlestickChart<'_> {
             area = add_padding(area, 1, PaddingDirection::Top);
         }
 
-        let (min, max) = state.min_max(self.data);
+        let (min, max) = state.chart_bounds(self.data, true);
 
         let areas = ChartAreas::new(area, self.show_x_labels);
 
@@ -100,6 +100,24 @@ impl StatefulWidget for PricesCandlestickChart<'_> {
             }
         }
 
+        // Wicks cut off by the top or bottom of the chart, as the fraction of the
+        // x axis they're at, whether they're cut off at the top, and their color
+        let clipped_wicks = candles
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, candle)| Some((idx, candle.as_ref()?)))
+            .flat_map(|(idx, candle)| {
+                let fraction = (idx as f64 * 4.0 + 2.0) / (f64::from(num_candles) * 4.0);
+                let color = candle_color(candle);
+
+                [
+                    (candle.high > max).then_some((fraction, true, color)),
+                    (candle.low < min).then_some((fraction, false, color)),
+                ]
+            })
+            .flatten()
+            .collect::<Vec<_>>();
+
         if self.loaded {
             Canvas::default()
                 .background_color(THEME.background())
@@ -135,11 +153,7 @@ impl StatefulWidget for PricesCandlestickChart<'_> {
 
                     for (idx, candle) in candles.iter().enumerate() {
                         if let Some(candle) = candle {
-                            let color = if candle.close.gt(&candle.open) {
-                                THEME.profit()
-                            } else {
-                                THEME.loss()
-                            };
+                            let color = candle_color(candle);
 
                             ctx.draw(&Rectangle {
                                 x: idx as f64 * 4.0 + 1.0,
@@ -169,6 +183,22 @@ impl StatefulWidget for PricesCandlestickChart<'_> {
                     }
                 })
                 .render(areas.chart, buf);
+
+            // Mark where wicks go beyond the chart
+            let plot = areas.plot;
+            for (fraction, above, color) in clipped_wicks {
+                if let (Some(column), true) = (column(fraction, plot.width), plot.height > 0) {
+                    let (row, marker) = if above {
+                        (plot.top(), "▲")
+                    } else {
+                        (plot.bottom() - 1, "▼")
+                    };
+
+                    buf.get_mut(plot.x + column, row)
+                        .set_symbol(marker)
+                        .set_fg(color);
+                }
+            }
         } else {
             Block::default()
                 .borders(if self.show_x_labels {
@@ -187,5 +217,13 @@ impl StatefulWidget for PricesCandlestickChart<'_> {
             let ticks = self.x_axis.ticks(areas.plot.width);
             render_ticks(buf, areas.plot, x_labels, &ticks);
         }
+    }
+}
+
+fn candle_color(candle: &Candle) -> ratatui::style::Color {
+    if candle.close.gt(&candle.open) {
+        THEME.profit()
+    } else {
+        THEME.loss()
     }
 }

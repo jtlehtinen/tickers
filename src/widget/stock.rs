@@ -28,6 +28,10 @@ use crate::{
 };
 
 const NUM_LOADING_TICKS: usize = 8;
+
+/// How far wicks can extend a candlestick chart beyond the candle bodies, as a
+/// fraction of the bodies' range. Longer wicks are clipped.
+const MAX_WICK_EXTENSION: f64 = 0.25;
 const ICON_LOADING_TICKS: [char; 8] = ['⣾', '⣽', '⣻', '⢿', '⡿', '⣟', '⣯', '⣷'];
 
 pub struct StockState {
@@ -450,22 +454,35 @@ impl StockState {
         }
     }
 
-    pub fn min_max(&self, data: &[Price]) -> (f64, f64) {
-        let (mut max, mut min) = self.high_low(data);
+    /// Prices from min to max that a chart of `data` shows. The prices drawn
+    /// (closes, and opens for candles), the current price and the previous
+    /// close are always shown. With `wicks`, highs and lows are too, unless
+    /// they'd extend the range by more than `MAX_WICK_EXTENSION`, so a single
+    /// spike doesn't squash the chart.
+    pub fn chart_bounds(&self, data: &[Price], wicks: bool) -> (f64, f64) {
+        let prev_close = self
+            .prev_close_price
+            .filter(|_| self.time_frame == TimeFrame::Day1 && !*HIDE_PREV_CLOSE);
 
-        if self.time_frame == TimeFrame::Day1 && !*HIDE_PREV_CLOSE {
-            if let Some(prev_close) = self.prev_close_price {
-                if prev_close.le(&min) {
-                    min = prev_close;
-                }
+        let bodies = data
+            .iter()
+            .filter(|p| p.close > 0.0)
+            .flat_map(|p| [p.close, if wicks { p.open } else { p.close }])
+            .chain([self.current_price()])
+            .chain(prev_close)
+            .filter(|price| *price > 0.0);
 
-                if prev_close.gt(&max) {
-                    max = prev_close;
-                }
-            }
+        let (high, low) = self.high_low(data);
+        let wick_bounds = (
+            low.min(prev_close.unwrap_or(low)),
+            high.max(prev_close.unwrap_or(high)),
+        );
+
+        match min_max(bodies) {
+            Some((min, max)) if wicks => clip_wicks((min, max), wick_bounds),
+            Some(bounds) => bounds,
+            None => wick_bounds,
         }
-
-        (min, max)
     }
 
     pub fn high_low(&self, data: &[Price]) -> (f64, f64) {
@@ -1112,6 +1129,30 @@ pub fn get_chart_title(
     title
 }
 
+/// Smallest and largest of `prices`
+fn min_max(prices: impl Iterator<Item = f64>) -> Option<(f64, f64)> {
+    prices.fold(None, |bounds, price| match bounds {
+        None => Some((price, price)),
+        Some((min, max)) => Some((min.min(price), max.max(price))),
+    })
+}
+
+/// Bounds of the candle `bodies` (min, max), extended to the `wicks`' bounds
+/// by at most `MAX_WICK_EXTENSION` of the bodies' range on each side
+fn clip_wicks(bodies: (f64, f64), wicks: (f64, f64)) -> (f64, f64) {
+    let extension = (bodies.1 - bodies.0) * MAX_WICK_EXTENSION;
+
+    // Nothing to measure wicks against
+    if extension <= 0.0 {
+        return (wicks.0.min(bodies.0), wicks.1.max(bodies.1));
+    }
+
+    (
+        wicks.0.max(bodies.0 - extension).min(bodies.0),
+        wicks.1.min(bodies.1 + extension).max(bodies.1),
+    )
+}
+
 /// How long without a new quote before it's stale. Longer than the background
 /// update interval, so switching to a tab doesn't flash it.
 fn stale_after(update_interval: u64) -> Duration {
@@ -1291,7 +1332,7 @@ mod tests {
 
     use std::time::Duration;
 
-    use super::{nasdaq_asset_class, spread, stale_after, truncate_title};
+    use super::{clip_wicks, nasdaq_asset_class, spread, stale_after, truncate_title};
     use crate::api::AssetClass;
 
     #[test]
@@ -1385,5 +1426,21 @@ mod tests {
     fn quotes_are_stale_after_3_slow_updates() {
         assert_eq!(stale_after(10), Duration::from_secs(30));
         assert_eq!(stale_after(u64::MAX), Duration::from_secs(u64::MAX));
+    }
+
+    #[test]
+    fn long_wicks_are_clipped() {
+        // MU's 04:02 spike to 937.53, with bodies from 915 to 931.24
+        assert_eq!(clip_wicks((915.0, 931.24), (914.5, 937.53)), (914.5, 935.3));
+    }
+
+    #[test]
+    fn short_wicks_are_kept() {
+        assert_eq!(clip_wicks((100.0, 200.0), (95.0, 210.0)), (95.0, 210.0));
+    }
+
+    #[test]
+    fn wicks_of_flat_bodies_are_kept() {
+        assert_eq!(clip_wicks((100.0, 100.0), (99.0, 102.0)), (99.0, 102.0));
     }
 }
