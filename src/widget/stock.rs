@@ -13,6 +13,7 @@ use super::chart::{
 use super::chart_configuration::ChartConfigurationState;
 use super::{block, CachableWidget, CacheState, OptionsState};
 use crate::api::model::{ChartMeta, CompanyData};
+use crate::api::AssetClass;
 use crate::common::*;
 use crate::draw::{add_padding, PaddingDirection};
 use crate::service::{self, Service};
@@ -35,6 +36,8 @@ pub struct StockState {
     pub current_extended_price: Option<f64>,
     pub prev_close_price: Option<f64>,
     pub reg_mkt_volume: Option<String>,
+    /// From Nasdaq, only for US listings during pre-market
+    pub pre_market_volume: Option<u64>,
     pub bid: Option<Offer>,
     pub ask: Option<Offer>,
     pub market_state: Option<MarketState>,
@@ -63,6 +66,7 @@ impl Hash for StockState {
         self.current_extended_price.map(|f| f.to_bits()).hash(state);
         self.prev_close_price.map(|f| f.to_bits()).hash(state);
         self.reg_mkt_volume.hash(state);
+        self.pre_market_volume.hash(state);
         self.bid.hash(state);
         self.ask.hash(state);
         self.market_state.hash(state);
@@ -108,6 +112,7 @@ impl StockState {
             current_extended_price: None,
             prev_close_price: None,
             reg_mkt_volume: None,
+            pre_market_volume: None,
             bid: None,
             ask: None,
             market_state: None,
@@ -253,7 +258,15 @@ impl StockState {
                         self.prev_close_price = Some(session_previous_close(&chart_meta));
                     }
 
+                    let instrument_type = chart_meta.instrument_type.as_deref();
+                    if let Some(asset_class) = nasdaq_asset_class(&self.symbol, instrument_type) {
+                        self.stock_service.track_pre_market_volume(asset_class);
+                    }
+
                     self.chart_meta = Some(chart_meta);
+                }
+                service::stock::Update::PreMarketVolume(volume) => {
+                    self.pre_market_volume = volume;
                 }
                 service::stock::Update::CompanyData(data) => {
                     self.profile = Some(*data);
@@ -477,6 +490,20 @@ impl StockState {
             .map_or(0.0, |baseline| self.current_price() - baseline)
     }
 
+    /// Volume of the current session. Yahoo has the previous session's volume
+    /// until the market opens, so the pre-market volume comes from Nasdaq, or
+    /// the previous volume is marked as such when Nasdaq doesn't have it
+    pub fn volume(&self) -> Option<String> {
+        match (self.market_state, self.pre_market_volume) {
+            (Some(MarketState::Pre), Some(volume)) => Some(format_volume(volume)),
+            (Some(MarketState::Pre), None) => self
+                .reg_mkt_volume
+                .as_ref()
+                .map(|volume| format!("{} (prev)", volume)),
+            _ => self.reg_mkt_volume.clone(),
+        }
+    }
+
     /// The most recent error preventing the stock from loading, if any
     pub fn error(&self) -> Option<&str> {
         self.prices_error
@@ -641,7 +668,7 @@ impl CachableWidget<StockState> for StockWidget {
                 (None, None)
             };
 
-            let vol = state.reg_mkt_volume.clone().unwrap_or_default();
+            let vol = state.volume().unwrap_or_default();
 
             let (market_cap, avg_volume) = match state.profile.as_ref() {
                 Some(profile) => {
@@ -1145,6 +1172,21 @@ fn truncate_title(title: &str, max_width: usize) -> String {
     format!("{trimmed}...{fill}")
 }
 
+/// Nasdaq asset class of a Yahoo symbol, if Nasdaq has data for it (US stocks
+/// and ETFs)
+fn nasdaq_asset_class(symbol: &str, instrument_type: Option<&str>) -> Option<AssetClass> {
+    // Non US listings have an exchange suffix, e.g. SIVE.ST
+    if symbol.contains('.') {
+        return None;
+    }
+
+    match instrument_type? {
+        "EQUITY" => Some(AssetClass::Stocks),
+        "ETF" => Some(AssetClass::Etf),
+        _ => None,
+    }
+}
+
 /// Which session the current price is from, e.g. "Pre-market"
 fn market_state_span<'a>(market_state: Option<MarketState>) -> Span<'a> {
     match market_state {
@@ -1192,7 +1234,8 @@ fn offers_line<'a>(
 mod tests {
     use unicode_width::UnicodeWidthStr;
 
-    use super::truncate_title;
+    use super::{nasdaq_asset_class, truncate_title};
+    use crate::api::AssetClass;
 
     #[test]
     fn truncate_title_keeps_titles_that_fit() {
@@ -1236,5 +1279,30 @@ mod tests {
     fn truncate_title_handles_tiny_widths() {
         assert_eq!(truncate_title("MU - Micron", 0), "...");
         assert_eq!(truncate_title("MU - Micron", 2), "...");
+    }
+
+    #[test]
+    fn nasdaq_has_us_stocks_and_etfs() {
+        assert_eq!(
+            nasdaq_asset_class("MU", Some("EQUITY")),
+            Some(AssetClass::Stocks)
+        );
+        assert_eq!(
+            nasdaq_asset_class("BRK-B", Some("EQUITY")),
+            Some(AssetClass::Stocks)
+        );
+        assert_eq!(
+            nasdaq_asset_class("QQQ", Some("ETF")),
+            Some(AssetClass::Etf)
+        );
+    }
+
+    #[test]
+    fn nasdaq_has_no_other_listings() {
+        assert_eq!(nasdaq_asset_class("SIVE.ST", Some("EQUITY")), None);
+        assert_eq!(nasdaq_asset_class("^GSPC", Some("INDEX")), None);
+        assert_eq!(nasdaq_asset_class("BTC-USD", Some("CRYPTOCURRENCY")), None);
+        assert_eq!(nasdaq_asset_class("ES=F", Some("FUTURE")), None);
+        assert_eq!(nasdaq_asset_class("MU", None), None);
     }
 }

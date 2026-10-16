@@ -294,9 +294,46 @@ where
     deserializer.deserialize_seq(SeqVisitor(PhantomData))
 }
 
+/// Response of Nasdaq's quote info endpoint, `data` is null for unknown symbols
+#[derive(Debug, Deserialize, Clone)]
+pub struct NasdaqQuoteInfo {
+    pub data: Option<NasdaqQuoteInfoData>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct NasdaqQuoteInfoData {
+    /// "Pre-Market", "Market Open", "After-Hours" or "Closed"
+    pub market_status: Option<String>,
+    /// Data of the current session
+    pub primary_data: Option<NasdaqPrimaryData>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct NasdaqPrimaryData {
+    /// Shares traded in the session, e.g. "346,943.448348"
+    pub volume: Option<String>,
+}
+
+impl NasdaqQuoteInfo {
+    /// Shares traded in pre-market, if Nasdaq is in pre-market
+    pub fn pre_market_volume(&self) -> Option<u64> {
+        let data = self.data.as_ref()?;
+
+        if data.market_status.as_deref() != Some("Pre-Market") {
+            return None;
+        }
+
+        let volume = data.primary_data.as_ref()?.volume.as_ref()?;
+        let volume: f64 = volume.replace(',', "").parse().ok()?;
+
+        Some(volume.round() as u64)
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::ChartQuote;
+    use super::{ChartQuote, NasdaqQuoteInfo};
 
     #[test]
     fn test_deserialize_vec_defaults_nulls() {
@@ -319,5 +356,46 @@ mod tests {
         .unwrap_err();
 
         assert!(err.to_string().contains("invalid type"), "{}", err);
+    }
+
+    fn nasdaq_info(json: &str) -> NasdaqQuoteInfo {
+        serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn nasdaq_pre_market_volume() {
+        let info = nasdaq_info(
+            r#"{"data":{"symbol":"MU","marketStatus":"Pre-Market",
+                "primaryData":{"lastSalePrice":"$913.49","volume":"346,943.548348"}}}"#,
+        );
+
+        assert_eq!(info.pre_market_volume(), Some(346_944));
+    }
+
+    #[test]
+    fn nasdaq_no_pre_market_volume_outside_pre_market() {
+        let info = nasdaq_info(
+            r#"{"data":{"marketStatus":"Market Open","primaryData":{"volume":"12,345"}}}"#,
+        );
+
+        assert_eq!(info.pre_market_volume(), None);
+    }
+
+    #[test]
+    fn nasdaq_unknown_symbol() {
+        let info = nasdaq_info(
+            r#"{"data":null,"message":null,"status":{"rCode":400,
+                "bCodeMessage":[{"code":1001,"errorMessage":"Symbol not exists."}]}}"#,
+        );
+
+        assert_eq!(info.pre_market_volume(), None);
+    }
+
+    #[test]
+    fn nasdaq_empty_volume() {
+        let info =
+            nasdaq_info(r#"{"data":{"marketStatus":"Pre-Market","primaryData":{"volume":""}}}"#);
+
+        assert_eq!(info.pre_market_volume(), None);
     }
 }

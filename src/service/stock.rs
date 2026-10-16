@@ -1,5 +1,6 @@
 use super::*;
 use crate::api::model::{ChartMeta, CompanyData};
+use crate::api::AssetClass;
 use crate::common::*;
 use crate::task::*;
 
@@ -8,6 +9,8 @@ pub struct StockService {
     current_price_handle: AsyncTaskHandle<Quote>,
     prices_handle: AsyncTaskHandle<(TimeFrame, ChartMeta, Vec<Price>)>,
     company_handle: AsyncTaskHandle<CompanyData>,
+    /// Only for US listings, started once their asset class is known
+    pre_market_volume_handle: Option<AsyncTaskHandle<Option<u64>>>,
 }
 
 impl StockService {
@@ -26,6 +29,16 @@ impl StockService {
             current_price_handle,
             prices_handle,
             company_handle,
+            pre_market_volume_handle: None,
+        }
+    }
+
+    /// Starts fetching the pre-market volume, if not already
+    pub fn track_pre_market_volume(&mut self, asset_class: AssetClass) {
+        if self.pre_market_volume_handle.is_none() {
+            let task = PreMarketVolume::new(self.symbol.clone(), asset_class);
+
+            self.pre_market_volume_handle = Some(task.connect());
         }
     }
 
@@ -42,6 +55,7 @@ pub enum Update {
     NewPrice(Quote),
     Prices((TimeFrame, ChartMeta, Vec<Price>)),
     CompanyData(Box<CompanyData>),
+    PreMarketVolume(Option<u64>),
     CurrentPriceError(String),
     PricesError(String),
 }
@@ -75,6 +89,16 @@ impl Service for StockService {
             .map(Update::CompanyData);
         updates.extend(company_updates);
 
+        // Errors keep the last volume, it's refetched soon
+        if let Some(handle) = self.pre_market_volume_handle.as_ref() {
+            let pre_market_volume_updates = handle
+                .response()
+                .try_iter()
+                .filter_map(Result::ok)
+                .map(Update::PreMarketVolume);
+            updates.extend(pre_market_volume_updates);
+        }
+
         updates
     }
 
@@ -82,11 +106,19 @@ impl Service for StockService {
         self.current_price_handle.pause();
         self.prices_handle.pause();
         self.company_handle.pause();
+
+        if let Some(handle) = self.pre_market_volume_handle.as_ref() {
+            handle.pause();
+        }
     }
 
     fn resume(&self) {
         self.current_price_handle.resume();
         self.prices_handle.resume();
         self.company_handle.resume();
+
+        if let Some(handle) = self.pre_market_volume_handle.as_ref() {
+            handle.resume();
+        }
     }
 }

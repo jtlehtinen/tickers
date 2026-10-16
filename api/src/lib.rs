@@ -3,6 +3,22 @@ pub use self::client::{Client, Unauthorized};
 mod client;
 pub mod model;
 
+/// Nasdaq's asset class of a symbol, which its API needs along with the symbol
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum AssetClass {
+    Stocks,
+    Etf,
+}
+
+impl std::fmt::Display for AssetClass {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            AssetClass::Stocks => "stocks",
+            AssetClass::Etf => "etf",
+        })
+    }
+}
+
 #[derive(Debug, Copy, Clone)]
 pub enum Interval {
     Minute1,

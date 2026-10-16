@@ -1,13 +1,24 @@
 use std::collections::HashMap;
+use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use futures::AsyncReadExt;
 use http::{header, Request, Uri};
+use isahc::config::Configurable;
 use isahc::{AsyncReadResponseExt, HttpClient};
 use serde::de::DeserializeOwned;
 
-use crate::model::{Chart, ChartData, Company, CompanyData, CrumbData, Options, OptionsHeader};
-use crate::{Interval, Range};
+use crate::model::{
+    Chart, ChartData, Company, CompanyData, CrumbData, NasdaqQuoteInfo, Options, OptionsHeader,
+};
+use crate::{AssetClass, Interval, Range};
+
+const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36";
+
+const NASDAQ_BASE: &str = "https://api.nasdaq.com/api";
+
+/// Nasdaq never answers some requests (e.g. without a user agent)
+const NASDAQ_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Debug)]
 pub struct Client {
@@ -40,7 +51,7 @@ impl Client {
         let mut req = Request::builder()
             .method(http::Method::GET)
             .uri(url)
-            .header(header::USER_AGENT, "Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36");
+            .header(header::USER_AGENT, USER_AGENT);
 
         if let Some(cookie) = cookie {
             req = req.header(header::COOKIE, cookie);
@@ -109,6 +120,48 @@ impl Client {
         }
 
         bail!("Failed to get chart data for {}", symbol);
+    }
+
+    /// Today's pre-market volume of a US listed `symbol` (a Yahoo symbol) from
+    /// Nasdaq, since Yahoo has none. `None` when Nasdaq isn't in pre-market or
+    /// doesn't know the symbol.
+    pub async fn get_pre_market_volume(
+        &self,
+        symbol: &str,
+        asset_class: AssetClass,
+    ) -> Result<Option<u64>> {
+        // Yahoo's BRK-B is Nasdaq's BRK.B
+        let symbol = symbol.replace('-', ".");
+
+        let url = format!(
+            "{}/quote/{}/info?assetclass={}",
+            NASDAQ_BASE,
+            encode_symbol(&symbol),
+            asset_class
+        )
+        .parse::<Uri>()?;
+
+        let req = Request::builder()
+            .method(http::Method::GET)
+            .uri(url)
+            .header(header::USER_AGENT, USER_AGENT)
+            .header(header::ACCEPT, "application/json")
+            .timeout(NASDAQ_TIMEOUT)
+            .body(())?;
+
+        let mut res = self
+            .client
+            .send_async(req)
+            .await
+            .context("Failed to get request")?;
+
+        let status = res.status();
+        let bytes = res.bytes().await?;
+
+        let info: NasdaqQuoteInfo = serde_json::from_slice(&bytes)
+            .with_context(|| format!("Unexpected response from Nasdaq ({})", status))?;
+
+        Ok(info.pre_market_volume())
     }
 
     pub async fn get_company_data(
@@ -460,6 +513,25 @@ mod tests {
             } else if idx == 0 {
                 panic!();
             }
+        }
+    }
+
+    #[async_std::test]
+    #[ignore = "requires network access to Nasdaq"]
+    async fn test_pre_market_volume() {
+        let client = Client::new();
+
+        // Volume is only returned during pre-market, but requests should
+        // succeed whenever
+        for (symbol, asset_class) in [
+            ("MU", AssetClass::Stocks),
+            ("BRK-B", AssetClass::Stocks),
+            ("QQQ", AssetClass::Etf),
+        ] {
+            let volume = client.get_pre_market_volume(symbol, asset_class).await;
+
+            println!("{}: {:?}", symbol, volume);
+            assert!(volume.is_ok());
         }
     }
 }

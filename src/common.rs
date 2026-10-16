@@ -413,6 +413,19 @@ pub fn format_price(price: f64) -> String {
     format!("{:.*}", price_decimals(price), price)
 }
 
+/// Formats a volume like Yahoo does, e.g. 389.23k or 38.35M
+pub fn format_volume(volume: u64) -> String {
+    let volume = volume as f64;
+
+    match [(1e12, "T"), (1e9, "B"), (1e6, "M"), (1e3, "k")]
+        .into_iter()
+        .find(|(unit, _)| volume >= *unit)
+    {
+        Some((unit, suffix)) => format!("{:.2}{}", volume / unit, suffix),
+        None => format!("{}", volume),
+    }
+}
+
 fn get_weekday(epoch: i64) -> Weekday {
     NaiveDateTime::from_timestamp_opt(epoch, 0)
         .unwrap_or_default()
@@ -423,7 +436,7 @@ fn get_weekday(epoch: i64) -> Weekday {
 mod tests {
     use chrono::{Datelike, NaiveDateTime, Weekday};
 
-    use super::{format_price, session_previous_close, MarketTimes, DAY};
+    use super::{format_price, format_volume, session_previous_close, MarketTimes, DAY};
     use crate::api::model::ChartMeta;
 
     const HOUR: i64 = 60 * 60;
@@ -584,6 +597,16 @@ mod tests {
         assert_eq!(format_price(99_999.99), "99999.99");
         assert_eq!(format_price(105_000.5), "105000.5");
         assert_eq!(format_price(1_234_567.0), "1234567");
+    }
+
+    #[test]
+    fn volumes_are_shortened() {
+        assert_eq!(format_volume(0), "0");
+        assert_eq!(format_volume(999), "999");
+        assert_eq!(format_volume(389_229), "389.23k");
+        assert_eq!(format_volume(38_345_136), "38.35M");
+        assert_eq!(format_volume(1_050_000_000), "1.05B");
+        assert_eq!(format_volume(2_000_000_000_000), "2.00T");
     }
 
     #[test]

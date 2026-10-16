@@ -14,6 +14,7 @@ pub use self::current_price::{CurrentPrice, MarketState, Offer, Quote};
 pub use self::default_timestamps::DefaultTimestamps;
 pub use self::options_data::OptionsData;
 pub use self::options_dates::OptionsDates;
+pub use self::pre_market_volume::PreMarketVolume;
 pub use self::prices::Prices;
 use crate::api::model::CrumbData;
 use crate::api::Unauthorized;
@@ -24,6 +25,7 @@ mod current_price;
 mod default_timestamps;
 mod options_data;
 mod options_dates;
+mod pre_market_volume;
 mod prices;
 
 /// How often one-shot tasks are retried until they succeed

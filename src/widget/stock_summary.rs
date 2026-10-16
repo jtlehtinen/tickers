@@ -88,7 +88,7 @@ impl CachableWidget<StockState> for StockSummaryWidget {
                 (None, None)
             };
 
-            let vol = state.reg_mkt_volume.clone().unwrap_or_default();
+            let vol = state.volume().unwrap_or_default();
 
             let prices = vec![
                 Line::from(vec![
