@@ -65,9 +65,7 @@ fn main() {
 
     let starting_chart_type = opts.chart_type.unwrap_or(ChartType::Line);
 
-    let starting_stocks: Vec<_> = opts
-        .symbols
-        .unwrap_or_default()
+    let starting_stocks: Vec<_> = normalize_symbols(opts.symbols.unwrap_or_default())
         .into_iter()
         .map(|symbol| widget::StockState::new(symbol, starting_chart_type))
         .collect();
@@ -186,6 +184,22 @@ fn main() {
     }
 }
 
+/// Trims and uppercases symbols, dropping empty entries (e.g. from `MU,,NVDA`)
+/// and duplicates while preserving the original order
+fn normalize_symbols(symbols: Vec<String>) -> Vec<String> {
+    let mut normalized: Vec<String> = Vec::with_capacity(symbols.len());
+
+    for symbol in symbols {
+        let symbol = symbol.trim().to_ascii_uppercase();
+
+        if !symbol.is_empty() && !normalized.contains(&symbol) {
+            normalized.push(symbol);
+        }
+    }
+
+    normalized
+}
+
 fn setup_terminal() {
     let mut stdout = io::stdout();
 
@@ -241,4 +255,30 @@ fn set_crumb() {
             *_guard = Some(crumb);
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_symbols;
+
+    fn strings(values: &[&str]) -> Vec<String> {
+        values.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn normalize_symbols_drops_empty_entries() {
+        assert_eq!(
+            normalize_symbols(strings(&["MU", "NVDA", "", "AAOI"])),
+            strings(&["MU", "NVDA", "AAOI"])
+        );
+        assert!(normalize_symbols(strings(&[""])).is_empty());
+    }
+
+    #[test]
+    fn normalize_symbols_trims_uppercases_and_dedupes() {
+        assert_eq!(
+            normalize_symbols(strings(&["mu", " NVDA", "MU ", "  ", "es=f"])),
+            strings(&["MU", "NVDA", "ES=F"])
+        );
+    }
 }
