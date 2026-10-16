@@ -53,19 +53,17 @@ def_theme_struct_with_defaults!(
 );
 
 fn hex_to_color(hex: &str) -> Option<Color> {
-    if hex.len() == 7 {
-        let hash = &hex[0..1];
-        let r = u8::from_str_radix(&hex[1..3], 16);
-        let g = u8::from_str_radix(&hex[3..5], 16);
-        let b = u8::from_str_radix(&hex[5..7], 16);
+    let hex = hex.strip_prefix('#')?;
 
-        return match (hash, r, g, b) {
-            ("#", Ok(r), Ok(g), Ok(b)) => Some(Color::Rgb(r, g, b)),
-            _ => None,
-        };
+    // Checking for hex digits up front also guarantees the slicing below
+    // happens on character boundaries
+    if hex.len() != 6 || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
     }
 
-    None
+    let channel = |idx: usize| u8::from_str_radix(&hex[idx..idx + 2], 16).ok();
+
+    Some(Color::Rgb(channel(0)?, channel(2)?, channel(4)?))
 }
 
 mod de {
@@ -103,5 +101,34 @@ mod de {
         }
 
         deserializer.deserialize_any(ColorVisitor)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ratatui::style::Color;
+
+    use super::hex_to_color;
+
+    #[test]
+    fn hex_to_color_parses_valid_colors() {
+        assert_eq!(hex_to_color("#403E41"), Some(Color::Rgb(0x40, 0x3E, 0x41)));
+        assert_eq!(hex_to_color("#fcfcfa"), Some(Color::Rgb(0xFC, 0xFC, 0xFA)));
+    }
+
+    #[test]
+    fn hex_to_color_rejects_invalid_colors() {
+        for hex in [
+            "403E41", "#403E4", "#403E411", "#40 E41", "#+1+2+3", "#GGGGGG",
+        ] {
+            assert_eq!(hex_to_color(hex), None, "{}", hex);
+        }
+    }
+
+    #[test]
+    fn hex_to_color_rejects_multibyte_characters() {
+        // 7 bytes long, previously panicked slicing inside the 'é'
+        assert_eq!(hex_to_color("é12345"), None);
+        assert_eq!(hex_to_color("#é1234"), None);
     }
 }
