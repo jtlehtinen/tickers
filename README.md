@@ -1,6 +1,6 @@
 # tick-rs
 
-Realtime ticker data in your terminal 📈 Built with Rust. Data sourced from Yahoo! Finance.
+Realtime ticker data in your terminal.
 
 > [!NOTE]
 > This is a fork of [tarkah/tickrs](https://github.com/tarkah/tickrs) that has diverged
