@@ -12,7 +12,7 @@ use ratatui::Terminal;
 use rclite::Arc;
 use service::default_timestamps::DefaultTimestampService;
 use service::tab_quotes::TabQuotesService;
-use tickrs_api as api;
+use tickers_api as api;
 
 use crate::app::DebugInfo;
 use crate::common::{ChartType, TimeFrame};

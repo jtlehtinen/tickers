@@ -1,10 +1,10 @@
 [package]
-name = "tickrs"
+name = "tickers"
 version = "0.15.0"
 authors = ["tarkah <admin@tarkah.dev>", "Juha Lehtinen"]
 edition = "2021"
 license = "MIT"
-repository = "https://github.com/jtlehtinen/tickrs"
+repository = "https://github.com/jtlehtinen/tickers"
 publish = false
 readme = "README.md"
 description = "Realtime ticker data in your terminal 📈"
@@ -36,7 +36,7 @@ rclite = "0.4.2"
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
 unicode-width = "0.2.2"
-tickrs-api = { path = "api/", version = "0.15.0" }
+tickers-api = { path = "api/", version = "0.15.0" }
 ratatui = { version = "0.30.2", default-features = false, features = ["crossterm", "serde"] }
 clap = { version = "4.6", features = ["derive"] }
 

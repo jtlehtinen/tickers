@@ -6,30 +6,30 @@ Realtime ticker data in your terminal.
 > This is a fork of [tarkah/tickrs](https://github.com/tarkah/tickrs) that has diverged
 > considerably from the original. It is not published to crates.io or any package manager.
 
-![tickrs showing a 1D candle chart with volumes and a sidebar of stock tabs](./assets/shot.png)
+![tickers showing a 1D candle chart with volumes and a sidebar of stock tabs](./assets/shot.png)
 
 ## Installation
 
 Clone the repository and build it:
 
 ```
-git clone https://github.com/jtlehtinen/tickrs
-cd tickrs
+git clone https://github.com/jtlehtinen/tickers
+cd tickers
 cargo build --release
 ```
 
-The binary is at `target/release/tickrs`.
+The binary is at `target/release/tickers`.
 
 ## Config File
 
-On first run, tickrs writes a commented default config to `tickrs/config.yml` in your
+On first run, tickers writes a commented default config to `tickers/config.yml` in your
 platform's config directory:
 
-- Linux: `~/.config/tickrs/config.yml`
-- macOS: `~/Library/Application Support/tickrs/config.yml`
-- Windows: `%APPDATA%\tickrs\config.yml`
+- Linux: `~/.config/tickers/config.yml`
+- macOS: `~/Library/Application Support/tickers/config.yml`
+- Windows: `%APPDATA%\tickers\config.yml`
 
-It accepts the same options as the command line; run `tickrs --help` to list them.
+It accepts the same options as the command line; run `tickers --help` to list them.
 
 ## Acknowledgments
 - [ratatui](https://github.com/ratatui/ratatui) - TUI library for Rust, and [fdehau](https://github.com/fdehau) / [tui-rs](https://github.com/fdehau/tui-rs) before it

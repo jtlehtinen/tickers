@@ -1,11 +1,11 @@
 [package]
-name = "tickrs-api"
+name = "tickers-api"
 version = "0.15.0"
 authors = ["tarkah <admin@tarkah.dev>", "Juha Lehtinen"]
 edition = "2021"
 license = "MIT"
-description = "API for tickrs"
-repository = "https://github.com/jtlehtinen/tickrs"
+description = "API for tickers"
+repository = "https://github.com/jtlehtinen/tickers"
 publish = false
 
 [dependencies]

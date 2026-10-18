@@ -2879,7 +2879,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "tickrs"
+name = "tickers"
 version = "0.15.0"
 dependencies = [
  "anyhow",
@@ -2899,12 +2899,12 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
- "tickrs-api",
+ "tickers-api",
  "unicode-width",
 ]
 
 [[package]]
-name = "tickrs-api"
+name = "tickers-api"
 version = "0.15.0"
 dependencies = [
  "anyhow",

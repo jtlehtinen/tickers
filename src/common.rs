@@ -6,7 +6,7 @@ use std::time::Duration;
 use chrono::{DateTime, Datelike, Weekday};
 use itertools::izip;
 use serde::Deserialize;
-use tickrs_api::Interval;
+use tickers_api::Interval;
 
 use crate::api::model::{ChartData, ChartMeta};
 use crate::api::Range;

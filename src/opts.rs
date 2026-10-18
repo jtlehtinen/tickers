@@ -51,7 +51,7 @@ fn get_cli_opts() -> Opts {
 fn get_config_opts() -> Result<Opts, Error> {
     let config_dir = dirs_next::config_dir()
         .ok_or_else(|| format_err!("Could not get config directory"))?
-        .join("tickrs");
+        .join("tickers");
 
     if !config_dir.exists() {
         let _ = fs::create_dir_all(&config_dir);
@@ -82,7 +82,7 @@ fn get_config_opts() -> Result<Opts, Error> {
 
 #[derive(Debug, Parser, Clone, Deserialize, Default)]
 #[command(
-    name = "tickrs",
+    name = "tickers",
     about = "Realtime ticker data in your terminal 📈",
     version
 )]
@@ -267,7 +267,7 @@ mod tests {
     use crate::common::{ChartType, TimeFrame};
 
     fn parse(args: &[&str]) -> Opts {
-        Opts::try_parse_from(std::iter::once("tickrs").chain(args.iter().copied())).unwrap()
+        Opts::try_parse_from(std::iter::once("tickers").chain(args.iter().copied())).unwrap()
     }
 
     #[test]
@@ -316,7 +316,7 @@ mod tests {
 
     #[test]
     fn cli_rejects_invalid_values() {
-        assert!(Opts::try_parse_from(["tickrs", "-c", "bar"]).is_err());
-        assert!(Opts::try_parse_from(["tickrs", "-t", "2D"]).is_err());
+        assert!(Opts::try_parse_from(["tickers", "-c", "bar"]).is_err());
+        assert!(Opts::try_parse_from(["tickers", "-t", "2D"]).is_err());
     }
 }
