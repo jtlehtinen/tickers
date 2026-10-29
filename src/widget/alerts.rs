@@ -184,12 +184,18 @@ impl StatefulWidget for AlertsWidget<'_> {
             let mut list_state = ListState::default();
             list_state.select(Some(state.selected));
 
+            // The focused highlight is drawn reversed so the text takes the background
+            // color, the item colors don't contrast with a light highlight
+            let highlight_style = if state.is_entering() {
+                style().bg(THEME.highlight_unfocused())
+            } else {
+                style()
+                    .fg(THEME.highlight_focused())
+                    .add_modifier(Modifier::REVERSED)
+            };
+
             StatefulWidget::render(
-                List::new(items).highlight_style(style().bg(if state.is_entering() {
-                    THEME.highlight_unfocused()
-                } else {
-                    THEME.highlight_focused()
-                })),
+                List::new(items).highlight_style(highlight_style),
                 layout[0],
                 buf,
                 &mut list_state,
