@@ -11,7 +11,7 @@ use crate::common::TimeFrame;
 use crate::service::Service;
 use crate::theme::style;
 use crate::widget::{
-    block, AddStockWidget, ChartConfigurationWidget, OptionsWidget, StockSummaryWidget,
+    block, AddStockWidget, AlertsWidget, ChartConfigurationWidget, OptionsWidget, StockSummaryWidget,
     StockWidget, HELP_HEIGHT, HELP_WIDTH,
 };
 use crate::THEME;
@@ -63,6 +63,7 @@ pub fn draw(terminal: &mut Terminal<impl Backend>, app: &mut App) {
                 match app.mode {
                     Mode::DisplaySummary => draw_summary(frame, app, layout[0]),
                     Mode::Help => draw_help(frame, app, layout[0]),
+                    Mode::Alerts => draw_alerts(frame, app, layout[0]),
                     _ => draw_main(frame, app, layout[0]),
                 }
 
@@ -89,6 +90,7 @@ pub fn draw(terminal: &mut Terminal<impl Backend>, app: &mut App) {
                 match app.mode {
                     Mode::DisplaySummary => draw_summary(frame, app, layout),
                     Mode::Help => draw_help(frame, app, layout),
+                    Mode::Alerts => draw_alerts(frame, app, layout),
                     _ => draw_main(frame, app, layout),
                 }
             };
@@ -234,7 +236,7 @@ fn draw_main(frame: &mut Frame, app: &mut App, area: Rect) {
             };
 
         match app.mode {
-            Mode::DisplayStock | Mode::AddStock => {
+            Mode::DisplayStock | Mode::AddStock | Mode::Alerts => {
                 frame.render_stateful_widget(StockWidget {}, main_chunks[0], stock);
             }
             // If width is too small, don't render stock widget and use entire space
@@ -482,6 +484,24 @@ fn draw_summary(frame: &mut Frame, app: &mut App, mut area: Rect) {
             bottom_layout[1],
         );
     }
+}
+
+/// The alerts pane over the view it was opened from
+fn draw_alerts(frame: &mut Frame, app: &mut App, area: Rect) {
+    if !app.stocks.is_empty() {
+        match app.previous_mode {
+            Mode::DisplaySummary => draw_summary(frame, app, area),
+            _ => draw_main(frame, app, area),
+        }
+    }
+
+    frame.render_stateful_widget(
+        AlertsWidget {
+            alerts: &app.alerts,
+        },
+        AlertsWidget::get_rect(area),
+        &mut app.alerts_pane,
+    );
 }
 
 fn draw_help(frame: &mut Frame, app: &App, area: Rect) {

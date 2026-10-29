@@ -49,12 +49,15 @@ Toggle Chart Configurations Pane:
   - <Tab / Shift+Tab>: move up/down
   - <Left / Right>: select options
   - <Enter>: submit changes
+Price Alerts:
+  - a: toggle pane
+  - n / d: new / delete alert
 "#;
 
 const LEFT_WIDTH: usize = 34;
 const RIGHT_WIDTH: usize = 35;
 pub const HELP_WIDTH: usize = 2 + LEFT_WIDTH + 2 + RIGHT_WIDTH + 2;
-pub const HELP_HEIGHT: usize = 2 + 19 + 1;
+pub const HELP_HEIGHT: usize = 2 + 21 + 1;
 
 #[derive(Copy, Clone)]
 pub struct HelpWidget {}

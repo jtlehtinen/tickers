@@ -1,7 +1,9 @@
 use std::cmp::Ordering;
+use std::collections::HashMap;
 
 use crossterm::event::Event;
 
+use crate::alert::{self, Alerts};
 use crate::common::{ChartType, TabSort, TimeFrame};
 use crate::service::default_timestamps::DefaultTimestampService;
 use crate::service::tab_quotes::TabQuotesService;
@@ -11,6 +13,7 @@ use crate::{widget, DEFAULT_TIMESTAMPS};
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum Mode {
     AddStock,
+    Alerts,
     ConfigureChart,
     DisplayStock,
     DisplayOptions,
@@ -34,6 +37,24 @@ pub struct App {
     pub chart_type: ChartType,
     /// The sort last applied to the tabs
     pub tab_sort: Option<TabSort>,
+    pub alerts: Alerts,
+    pub alerts_pane: widget::AlertsState,
+    /// Latest price of each symbol quoted, for the alerts
+    pub latest_prices: HashMap<String, f64>,
+}
+
+/// Symbols to fetch the quotes of together: every tab's, and those of alerts
+/// waiting to trigger, so they're watched without a tab
+pub fn quoted_symbols(stocks: &[widget::StockState], alerts: &Alerts) -> Vec<String> {
+    let mut symbols: Vec<String> = stocks.iter().map(|s| s.symbol().to_string()).collect();
+
+    for symbol in alerts.pending_symbols() {
+        if !symbols.iter().any(|s| s == symbol) {
+            symbols.push(symbol.to_string());
+        }
+    }
+
+    symbols
 }
 
 impl App {
@@ -44,8 +65,8 @@ impl App {
             *DEFAULT_TIMESTAMPS.write() = new_defaults;
         }
 
-        // Follow stocks being added and removed
-        let symbols = self.stocks.iter().map(|s| s.symbol().to_string()).collect();
+        // Follow stocks and alerts being added and removed
+        let symbols = quoted_symbols(&self.stocks, &self.alerts);
         self.tab_quotes_service.set_symbols(symbols);
 
         for quotes in self.tab_quotes_service.updates() {
@@ -54,7 +75,38 @@ impl App {
                     stock.update_tab_quote(quote.clone());
                 }
             }
+
+            for (symbol, quote) in quotes {
+                let price = quote.extended_price.unwrap_or(quote.regular_price);
+                self.latest_prices.insert(symbol, price);
+            }
         }
+    }
+
+    /// Notifies of the alerts reached by the latest prices. The tabs' stocks
+    /// have the most recent prices, the shown one being updated more often
+    pub fn check_alerts(&mut self) {
+        for stock in self.stocks.iter() {
+            if let Some(price) = stock.latest_price() {
+                self.latest_prices.insert(stock.symbol().to_string(), price);
+            }
+        }
+
+        for (symbol, price) in self.latest_prices.iter() {
+            for triggered in self.alerts.check(symbol, *price) {
+                alert::notify(&triggered, *price);
+            }
+        }
+    }
+
+    pub fn open_alerts(&mut self) {
+        self.previous_mode = self.mode;
+        self.mode = Mode::Alerts;
+    }
+
+    pub fn close_alerts(&mut self) {
+        self.alerts_pane.cancel();
+        self.mode = self.previous_mode;
     }
 
     /// Sorts the tabs once. They don't follow the changes afterwards, so they

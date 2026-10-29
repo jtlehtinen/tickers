@@ -45,6 +45,36 @@ fn handle_keys_add_stock(keycode: KeyCode, app: &mut app::App) {
     }
 }
 
+fn handle_keys_alerts(keycode: KeyCode, app: &mut app::App) {
+    if app.alerts_pane.is_entering() {
+        match keycode {
+            KeyCode::Enter => {
+                let latest_prices = &app.latest_prices;
+                app.alerts_pane
+                    .enter(&mut app.alerts, |symbol| latest_prices.get(symbol).copied());
+            }
+            KeyCode::Char(c) => app.alerts_pane.add_char(c),
+            KeyCode::Backspace => app.alerts_pane.del_char(),
+            KeyCode::Esc => app.alerts_pane.cancel(),
+            _ => {}
+        }
+
+        return;
+    }
+
+    match keycode {
+        KeyCode::Char('n') => {
+            let symbol = app.stocks.get(app.current_tab).map(|s| s.symbol());
+            app.alerts_pane.new_alert(symbol);
+        }
+        KeyCode::Char('d') | KeyCode::Delete => app.alerts_pane.delete(&mut app.alerts),
+        KeyCode::Up | KeyCode::Char('k') => app.alerts_pane.previous(),
+        KeyCode::Down | KeyCode::Char('j') => app.alerts_pane.next(&app.alerts),
+        KeyCode::Esc | KeyCode::Char('a') | KeyCode::Char('q') => app.close_alerts(),
+        _ => {}
+    }
+}
+
 fn handle_keys_display_stock(keycode: KeyCode, modifiers: KeyModifiers, app: &mut app::App) {
     match (keycode, modifiers) {
         (KeyCode::Left | KeyCode::Char('h'), KeyModifiers::CONTROL) => {
@@ -96,6 +126,9 @@ fn handle_keys_display_stock(keycode: KeyCode, modifiers: KeyModifiers, app: &mu
         (KeyCode::Char('r'), KeyModifiers::NONE) => {
             app.sort_tabs();
         }
+        (KeyCode::Char('a'), KeyModifiers::NONE) => {
+            app.open_alerts();
+        }
         (KeyCode::Char('o'), KeyModifiers::NONE)
             if app.stocks[app.current_tab].toggle_options() =>
         {
@@ -136,6 +169,9 @@ fn handle_keys_display_summary(keycode: KeyCode, app: &mut app::App) {
         }
         KeyCode::Char('r') => {
             app.sort_tabs();
+        }
+        KeyCode::Char('a') => {
+            app.open_alerts();
         }
         KeyCode::Char('/') => {
             app.previous_mode = app.mode;
@@ -282,6 +318,11 @@ pub fn handle_key_bindings(
         (Mode::AddStock, modifiers, keycode) => {
             if modifiers.is_empty() || modifiers == KeyModifiers::SHIFT {
                 handle_keys_add_stock(keycode, app)
+            }
+        }
+        (Mode::Alerts, modifiers, keycode) => {
+            if modifiers.is_empty() || modifiers == KeyModifiers::SHIFT {
+                handle_keys_alerts(keycode, app)
             }
         }
         (Mode::Help, modifiers, keycode) => {

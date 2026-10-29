@@ -252,6 +252,16 @@ impl StockState {
         }
     }
 
+    /// The most recent price, pre / post market included, whether or not
+    /// they're shown. `None` until a quote is received
+    pub fn latest_price(&self) -> Option<f64> {
+        Some(
+            self.current_extended_price
+                .unwrap_or(self.current_regular_price),
+        )
+        .filter(|price| *price > 0.0)
+    }
+
     /// Updates the quote from the quotes fetched for every tab, unless the
     /// stock is shown, as it then fetches its own more often
     pub fn update_tab_quote(&mut self, quote: DayQuote) {

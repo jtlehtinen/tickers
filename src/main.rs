@@ -17,6 +17,7 @@ use tickers_api as api;
 use crate::app::DebugInfo;
 use crate::common::{ChartType, TimeFrame};
 
+mod alert;
 mod app;
 mod common;
 mod draw;
@@ -78,12 +79,9 @@ fn main() {
 
     let default_timestamp_service = DefaultTimestampService::new();
 
-    let tab_quotes_service = TabQuotesService::new(
-        starting_stocks
-            .iter()
-            .map(|s| s.symbol().to_string())
-            .collect(),
-    );
+    let alerts = alert::Alerts::load();
+
+    let tab_quotes_service = TabQuotesService::new(app::quoted_symbols(&starting_stocks, &alerts));
 
     let app = Arc::new(Mutex::new(app::App {
         mode: starting_mode,
@@ -110,6 +108,9 @@ fn main() {
         summary_scroll_state: Default::default(),
         chart_type: starting_chart_type,
         tab_sort: None,
+        alerts,
+        alerts_pane: Default::default(),
+        latest_prices: Default::default(),
     }));
 
     let move_app = app.clone();
@@ -158,6 +159,8 @@ fn main() {
                         options.update();
                     }
                 }
+
+                app.check_alerts();
             }
             recv(ui_events) -> message => {
                 let mut app = app.lock();
