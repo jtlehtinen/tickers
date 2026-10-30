@@ -16,8 +16,8 @@ Add Stock:
     - <Enter>: accept
     - <Escape>: quit
 Change Tab:
-  - <Tab>: next stock
-  - <Shift+Tab>: previous stock
+  - <Tab / Down>: next stock
+  - <Shift+Tab / Up>: prev stock
 Reorder Tabs:
   - <Ctrl+Left/h>: move 1 tab up
   - <Ctrl+Right/l>: move 1 tab down

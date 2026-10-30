@@ -91,7 +91,7 @@ fn handle_keys_display_stock(keycode: KeyCode, modifiers: KeyModifiers, app: &mu
             app.stocks.swap(app.current_tab, new_idx);
             app.current_tab = new_idx;
         }
-        (KeyCode::BackTab, KeyModifiers::SHIFT) => {
+        (KeyCode::BackTab, KeyModifiers::SHIFT) | (KeyCode::Up, KeyModifiers::NONE) => {
             if app.current_tab == 0 {
                 app.current_tab = app.stocks.len() - 1;
             } else {
@@ -139,7 +139,7 @@ fn handle_keys_display_stock(keycode: KeyCode, modifiers: KeyModifiers, app: &mu
         {
             app.mode = app::Mode::ConfigureChart;
         }
-        (KeyCode::Tab, KeyModifiers::NONE) => {
+        (KeyCode::Tab | KeyCode::Down, KeyModifiers::NONE) => {
             if app.current_tab == app.stocks.len() - 1 {
                 app.current_tab = 0;
             } else {
