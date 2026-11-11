@@ -7,7 +7,7 @@ use ratatui::{Frame, Terminal};
 use unicode_width::UnicodeWidthStr;
 
 use crate::app::{App, Mode, ScrollDirection};
-use crate::common::TimeFrame;
+use crate::common::{format_price, TimeFrame};
 use crate::service::Service;
 use crate::theme::style;
 use crate::widget::{
@@ -104,21 +104,32 @@ fn draw_main(frame: &mut Frame, app: &mut App, area: Rect) {
     let tabs = app
         .stocks
         .iter()
-        .map(|s| (s.symbol(), s.day_pct_change()))
+        .map(|s| {
+            let price = Some(s.current_price())
+                .filter(|price| *price > 0.0)
+                .map(format_price);
+            (s.symbol(), price, s.day_pct_change())
+        })
         .collect::<Vec<_>>();
     let symbol_width = tabs
         .iter()
-        .map(|(symbol, _)| symbol.width())
+        .map(|(symbol, _, _)| symbol.width())
+        .max()
+        .unwrap_or(0);
+    let price_width = tabs
+        .iter()
+        .filter_map(|(_, price, _)| price.as_ref().map(|price| price.width()))
         .max()
         .unwrap_or(0);
     let pct_width = tabs
         .iter()
-        .filter_map(|(_, pct)| pct.map(|pct| format_pct(pct).width()))
+        .filter_map(|(_, _, pct)| pct.map(|pct| format_pct(pct).width()))
         .max()
         .unwrap_or(0);
 
     // Sidebar is as wide as the longest tab (or help icon), plus borders and padding
-    let tab_width = symbol_width + if pct_width > 0 { 2 + pct_width } else { 0 };
+    let column = |width: usize| if width > 0 { 2 + width } else { 0 };
+    let tab_width = symbol_width + column(price_width) + column(pct_width);
     let content_width = tab_width.max(if app.hide_help { 0 } else { HELP_ICON.width() }) as u16;
 
     // layout[0] - Main widget
@@ -155,13 +166,21 @@ fn draw_main(frame: &mut Frame, app: &mut App, area: Rect) {
 
         // Draw tabs
         {
-            // Changes are right aligned, at the right edge of the sidebar
-            let pct_width = (content_width as usize).saturating_sub(symbol_width + 2);
+            // Prices and changes are right aligned in columns, with any spare
+            // width going to the rightmost column so it ends at the sidebar's edge
+            let extra = (content_width as usize).saturating_sub(tab_width);
+            let (price_width, pct_width) = if pct_width > 0 {
+                (price_width, pct_width + extra)
+            } else if price_width > 0 {
+                (price_width + extra, 0)
+            } else {
+                (0, 0)
+            };
 
             let tabs: Vec<_> = tabs
                 .iter()
                 .enumerate()
-                .map(|(idx, (symbol, pct))| {
+                .map(|(idx, (symbol, price, pct))| {
                     let symbol_style = if idx == app.current_tab {
                         style()
                             .fg(THEME.text_primary())
@@ -170,22 +189,29 @@ fn draw_main(frame: &mut Frame, app: &mut App, area: Rect) {
                         style().fg(THEME.text_secondary())
                     };
 
-                    let line = match pct {
-                        Some(pct) => Line::from(vec![
-                            Span::styled(format!("{:<symbol_width$}  ", symbol), symbol_style),
-                            Span::styled(
-                                format!("{:>pct_width$}", format_pct(*pct)),
-                                style().fg(if *pct >= 0.0 {
-                                    THEME.profit()
-                                } else {
-                                    THEME.loss()
-                                }),
-                            ),
-                        ]),
-                        None => Line::from(Span::styled(symbol.to_string(), symbol_style)),
-                    };
+                    let mut spans = vec![Span::styled(
+                        format!("{:<symbol_width$}", symbol),
+                        symbol_style,
+                    )];
+                    if price_width > 0 {
+                        spans.push(Span::styled(
+                            format!("  {:>price_width$}", price.as_deref().unwrap_or("")),
+                            style().fg(THEME.text_normal()),
+                        ));
+                    }
+                    if pct_width > 0 {
+                        let (text, fg) = match pct {
+                            Some(pct) if *pct >= 0.0 => (format_pct(*pct), THEME.profit()),
+                            Some(pct) => (format_pct(*pct), THEME.loss()),
+                            None => (String::new(), THEME.text_normal()),
+                        };
+                        spans.push(Span::styled(
+                            format!("  {:>pct_width$}", text),
+                            style().fg(fg),
+                        ));
+                    }
 
-                    ListItem::new(line)
+                    ListItem::new(Line::from(spans))
                 })
                 .collect();
 
