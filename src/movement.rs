@@ -9,7 +9,7 @@ use crate::common::format_price;
 
 const WINDOW: Duration = Duration::from_secs(5 * 60);
 /// Fraction of the starting price
-const THRESHOLD: f64 = 0.02;
+const THRESHOLD: f64 = 0.04;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Move {
@@ -109,12 +109,12 @@ mod tests {
         let mut m = MoveMonitor::default();
         let t = Instant::now();
         assert!(m.record("MU", 100.0, t).is_none());
-        assert!(m.record("MU", 101.5, secs(t, 30)).is_none());
-        assert!(m.record("MU", 102.0, secs(t, 60)).is_none()); // exactly 2% isn't over
-        let mv = m.record("MU", 102.1, secs(t, 90)).unwrap();
+        assert!(m.record("MU", 103.0, secs(t, 30)).is_none());
+        assert!(m.record("MU", 104.0, secs(t, 60)).is_none()); // exactly 4% isn't over
+        let mv = m.record("MU", 104.1, secs(t, 90)).unwrap();
         assert_eq!(mv.direction, Move::Rise);
         assert_eq!(mv.from, 100.0);
-        assert!(m.record("MU", 102.2, secs(t, 100)).is_none());
+        assert!(m.record("MU", 104.2, secs(t, 100)).is_none());
     }
 
     #[test]
@@ -123,7 +123,7 @@ mod tests {
         let t = Instant::now();
         m.record("MU", 100.0, t);
         m.record("MU", 105.0, secs(t, 60)); // rise of 5% reported
-        let mv = m.record("MU", 102.8, secs(t, 120)).unwrap();
+        let mv = m.record("MU", 100.5, secs(t, 120)).unwrap();
         assert_eq!(mv.direction, Move::Decline);
         assert_eq!(mv.from, 105.0);
     }
@@ -133,8 +133,8 @@ mod tests {
         let mut m = MoveMonitor::default();
         let t = Instant::now();
         m.record("MU", 100.0, t);
-        m.record("MU", 101.0, secs(t, 200));
-        assert!(m.record("MU", 102.5, secs(t, 300)).is_none());
-        assert!(m.record("NVDA", 102.5, secs(t, 300)).is_none());
+        m.record("MU", 102.0, secs(t, 200));
+        assert!(m.record("MU", 104.5, secs(t, 300)).is_none());
+        assert!(m.record("NVDA", 104.5, secs(t, 300)).is_none());
     }
 }

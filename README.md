@@ -41,7 +41,7 @@ doesn't need a tab, its price is still checked every 15 seconds.
 Alerts are saved to `tickers/alerts.yml` in the data directory (`~/.local/share` on Linux).
 
 Stocks in the tabs are also watched for rapid moves: when a price rises or declines by over
-2% within 5 minutes, a notification is shown right away. After a move is reported, its price
+4% within 5 minutes, a notification is shown right away. After a move is reported, its price
 becomes the new starting point, so the same move isn't reported twice.
 
 ## Acknowledgments
