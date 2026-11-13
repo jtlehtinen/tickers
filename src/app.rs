@@ -5,6 +5,7 @@ use crossterm::event::Event;
 
 use crate::alert::{self, Alerts};
 use crate::common::{ChartType, TabSort, TimeFrame};
+use crate::movement::MoveMonitor;
 use crate::service::default_timestamps::DefaultTimestampService;
 use crate::service::tab_quotes::TabQuotesService;
 use crate::service::Service;
@@ -41,6 +42,8 @@ pub struct App {
     pub alerts_pane: widget::AlertsState,
     /// Latest price of each symbol quoted, for the alerts
     pub latest_prices: HashMap<String, f64>,
+    /// Rapid price moves of the tabs' stocks
+    pub move_monitor: MoveMonitor,
 }
 
 /// Symbols to fetch the quotes of together: every tab's, and those of alerts
@@ -97,6 +100,18 @@ impl App {
                 alert::notify(&triggered, *price);
             }
         }
+
+        let now = std::time::Instant::now();
+        for stock in self.stocks.iter() {
+            if let Some(price) = self.latest_prices.get(stock.symbol()) {
+                if let Some(rapid_move) = self.move_monitor.record(stock.symbol(), *price, now) {
+                    rapid_move.notify();
+                }
+            }
+        }
+        let stocks = &self.stocks;
+        self.move_monitor
+            .retain(|symbol| stocks.iter().any(|s| s.symbol() == symbol));
     }
 
     pub fn open_alerts(&mut self) {

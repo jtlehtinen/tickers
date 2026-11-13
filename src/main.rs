@@ -22,6 +22,7 @@ mod app;
 mod common;
 mod draw;
 mod event;
+mod movement;
 mod opts;
 mod portfolio;
 mod service;
@@ -111,6 +112,7 @@ fn main() {
         alerts,
         alerts_pane: Default::default(),
         latest_prices: Default::default(),
+        move_monitor: Default::default(),
     }));
 
     let move_app = app.clone();

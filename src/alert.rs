@@ -213,6 +213,12 @@ pub fn notify(alert: &Alert, price: f64) {
         format_price(alert.price)
     );
     let body = format!("{} is at {}", alert.symbol, format_price(price));
+    send_notification(&summary, &body);
+}
+
+/// Shows a desktop notification with `notify-send`
+pub fn send_notification(summary: &str, body: &str) {
+    let (summary, body) = (summary.to_string(), body.to_string());
 
     // Waited on in the background so it doesn't linger as a zombie process
     thread::spawn(move || {
