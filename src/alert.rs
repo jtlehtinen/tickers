@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::fs;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
@@ -87,7 +88,8 @@ impl Alert {
     }
 }
 
-/// The price alerts, saved to the data directory so they persist between runs
+/// The price alerts, saved to the data directory so they persist between runs.
+/// Kept sorted by ticker, then price, so the alert list is ordered
 #[derive(Debug, Default)]
 pub struct Alerts {
     alerts: Vec<Alert>,
@@ -99,12 +101,26 @@ impl Alerts {
     /// so the file isn't overwritten
     pub fn load() -> Alerts {
         match alerts_path().and_then(|path| Ok((read_alerts(&path)?, path))) {
-            Ok((alerts, path)) => Alerts {
-                alerts,
-                path: Some(path),
-            },
+            Ok((alerts, path)) => {
+                let mut alerts = Alerts {
+                    alerts,
+                    path: Some(path),
+                };
+                alerts.sort();
+                alerts
+            }
             Err(_) => Alerts::default(),
         }
+    }
+
+    /// Sorts by ticker, then price. The sort is stable, so alerts equal on
+    /// both keep their relative order
+    fn sort(&mut self) {
+        self.alerts.sort_by(|a, b| {
+            a.symbol
+                .cmp(&b.symbol)
+                .then_with(|| a.price.partial_cmp(&b.price).unwrap_or(Ordering::Equal))
+        });
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &Alert> {
@@ -124,8 +140,9 @@ impl Alerts {
     }
 
     /// Adds an alert for `symbol` at `price`. `current_price` is the symbol's
-    /// latest price, if known, to tell which way the price has to move
-    pub fn add(&mut self, symbol: String, price: f64, current_price: Option<f64>) {
+    /// latest price, if known, to tell which way the price has to move.
+    /// Returns the alert's index in the sorted list
+    pub fn add(&mut self, symbol: String, price: f64, current_price: Option<f64>) -> usize {
         let mut alert = Alert {
             symbol,
             price,
@@ -138,8 +155,19 @@ impl Alerts {
             alert.direction = Some(Direction::Rise);
         }
 
+        let (symbol, price) = (alert.symbol.clone(), alert.price);
         self.alerts.push(alert);
+        self.sort();
+
+        // The stable sort leaves the new alert last among its equals
+        let index = self
+            .alerts
+            .iter()
+            .rposition(|a| a.symbol == symbol && a.price == price)
+            .unwrap_or(0);
+
         self.save();
+        index
     }
 
     pub fn remove(&mut self, idx: usize) {
@@ -302,6 +330,30 @@ mod tests {
         assert_eq!(alerts.check("MU", 100.5).len(), 1);
         assert!(alerts.check("MU", 101.0).is_empty());
         assert_eq!(alerts.pending_symbols().collect::<Vec<_>>(), ["NVDA"]);
+    }
+
+    #[test]
+    fn alerts_are_sorted_by_ticker_then_price() {
+        let mut alerts = Alerts::default();
+        // Added out of order; the returned index is the sorted position
+        assert_eq!(alerts.add("NVDA".into(), 200.0, None), 0);
+        assert_eq!(alerts.add("AAPL".into(), 300.0, None), 0);
+        assert_eq!(alerts.add("NVDA".into(), 100.0, None), 1);
+        assert_eq!(alerts.add("AAPL".into(), 200.0, None), 0);
+
+        let sorted: Vec<_> = alerts
+            .iter()
+            .map(|a| (a.symbol.as_str(), a.price))
+            .collect();
+        assert_eq!(
+            sorted,
+            [
+                ("AAPL", 200.0),
+                ("AAPL", 300.0),
+                ("NVDA", 100.0),
+                ("NVDA", 200.0)
+            ]
+        );
     }
 
     #[test]

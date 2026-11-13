@@ -63,9 +63,7 @@ impl AlertsState {
         match parse_alert(input, None) {
             Ok((symbol, price)) => {
                 let current = current_price(&symbol);
-                alerts.add(symbol, price, current);
-
-                self.selected = alerts.len() - 1;
+                self.selected = alerts.add(symbol, price, current);
                 self.cancel();
             }
             Err(error) => self.error = Some(error),
